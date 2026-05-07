@@ -1,0 +1,19 @@
+# 默认忽略所有文件
+*
+
+# 允许上传 Python 源代码
+!config_ultimate.py
+!IDCPriceEnv20D_ultimate.py
+!train_ppo_ultimate.py
+!ga_base.py
+!pso_base.py
+!eval_base.py
+!task_model.py
+!power_model.py
+!task.py
+!demo_random_env_test.py
+!demo_task_model.py
+
+# 允许上传说明文件和 gitignore 本身
+!README.md
+!.gitignore
