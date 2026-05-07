@@ -23,17 +23,17 @@ ENV_CONFIG = {
 }
 
 REWARD_CONFIG = {
-    "reward_done_weight": 3.5,
-    "reward_cost_weight": 0.5,
+    "reward_done_weight": 5.0,
+    "reward_cost_weight": 0.35,
     "reward_queue_weight": 0.8,
-    "reward_final_queue_weight": 2.0,
-    "reward_deadline_weight": 0.8,
+    "reward_final_queue_weight": 3.0,
+    "reward_deadline_weight": 1.2,
     "reward_unused_capacity_weight": 0.08,
-    "reward_finished_task_weight": 0.8,
+    "reward_finished_task_weight": 1.5,
     "reward_priority_finish_weight": 0.6,
     "reward_urgent_backlog_weight": 0.8,
     "reward_waiting_weight": 0.25,
-    "reward_peak_load_weight": 1.80,
+    "reward_peak_load_weight": 1.0,
     "reward_pause_weight": 0.15,
     "reward_resume_weight": 0.03,
     "reward_non_interruptible_weight": 0.8,
