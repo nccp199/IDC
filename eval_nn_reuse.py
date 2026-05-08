@@ -76,8 +76,8 @@ FEATURE_GROUP_WEIGHTS = {
     "temperature_curve": 0.5,
 }
 
-GA_PLAN_TEMPLATE = "ga_out/ga_plan_seed{seed}.npy"
-PSO_PLAN_TEMPLATE = "pso_out/pso_plan_seed{seed}.npy"
+GA_PLAN_TEMPLATE = "ga_out_sin/ga_plan_seed{seed}.npy"
+PSO_PLAN_TEMPLATE = "pso_out_sin/pso_plan_seed{seed}.npy"
 DEFAULT_PPO_MODEL = "ppo_outputs_mid_balance_1m/models/ppo_idc_ultimate_final.zip"
 
 
