@@ -14,6 +14,7 @@
 !demo_random_env_test.py
 !demo_task_model.py
 !eval_nn_reuse.py
+!git_push_selected.ps1
 
 # 允许上传说明文件和 gitignore 本身
 !README.md
