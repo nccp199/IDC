@@ -259,17 +259,36 @@ def resolve_ppo_model_path(model_arg: str) -> Optional[Path]:
     return None
 
 
-def evaluate_ppo(model: Any, env_seed: int) -> Dict[str, Any]:
+def evaluate_ppo(model: Any, env_seed: int, hourly_rows=None) -> Dict[str, Any]:
     env = make_env(env_seed)
     obs, reset_info = env.reset()
 
     total_reward = 0.0
     info: Dict[str, Any] = {}
 
-    for _ in range(env.horizon):
+    for step in range(env.horizon):
         action, _state = model.predict(obs, deterministic=True)
         obs, reward, terminated, truncated, info = env.step(action)
         total_reward += float(reward)
+
+        if hourly_rows is not None:
+            hourly_rows.append({
+                "algorithm": "PPO",
+                "seed": int(env_seed),
+                "step": int(step),
+                "hour": int(info.get("hour", step)),
+                "price": float(info.get("price", 0.0)),
+                "action_mean": float(info.get("action_mean", np.mean(action))),
+                "actual_total_load_mean": float(info.get("actual_total_load_mean", np.nan)),
+                "planned_task_load_mean": float(info.get("planned_task_load_mean", np.nan)),
+                "planned_capacity": float(info.get("planned_capacity", np.nan)),
+                "completed_work": float(info.get("completed_work", np.nan)),
+                "unused_capacity": float(info.get("unused_capacity", np.nan)),
+                "hourly_cost": float(info.get("hourly_cost", info.get("cost", np.nan))),
+                "backlog_work": float(info.get("Q", info.get("backlog_work", np.nan))),
+                "reward": float(reward),
+            })
+
         if terminated or truncated:
             break
 
@@ -383,6 +402,71 @@ def write_csv(path: Path, rows: List[Dict[str, Any]]) -> None:
         writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(rows)
+
+
+def save_hourly_csv(rows, out_path):
+    if not rows:
+        return
+
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    fieldnames = list(rows[0].keys())
+    with out_path.open("w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def save_hourly_mean_csv(rows, out_path):
+    if not rows:
+        return
+
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    keys = [
+        "price",
+        "action_mean",
+        "actual_total_load_mean",
+        "planned_task_load_mean",
+        "planned_capacity",
+        "completed_work",
+        "unused_capacity",
+        "hourly_cost",
+        "backlog_work",
+        "reward",
+    ]
+
+    hours = sorted(set(int(r["hour"]) for r in rows))
+    mean_rows = []
+
+    for h in hours:
+        h_rows = [r for r in rows if int(r["hour"]) == h]
+        out = {
+            "algorithm": "PPO",
+            "hour": h,
+            "n": len(h_rows),
+        }
+
+        for key in keys:
+            vals = []
+            for r in h_rows:
+                v = r.get(key)
+                try:
+                    vals.append(float(v))
+                except Exception:
+                    pass
+
+            out[f"{key}_mean"] = sum(vals) / len(vals) if vals else ""
+
+        mean_rows.append(out)
+
+    fieldnames = list(mean_rows[0].keys())
+    with out_path.open("w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(mean_rows)
 
 
 def build_summary(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -560,8 +644,9 @@ def main() -> None:
                 print(f">>> Could not import stable_baselines3.PPO; skipped PPO. Error: {exc}")
             else:
                 model = PPO.load(str(model_path))
+                ppo_hourly_rows = []
                 for seed in seeds:
-                    row = evaluate_ppo(model, seed)
+                    row = evaluate_ppo(model, seed, ppo_hourly_rows)
                     row["ppo_model_path"] = str(model_path)
                     all_rows.append(row)
                     print(
@@ -569,6 +654,14 @@ def main() -> None:
                         f"cost={row['total_cost']:.2f} unit={row['unit_task_cost']:.4f} "
                         f"backlog={row['final_backlog_work']:.2f} reward={row['total_reward']:.4f}"
                     )
+                save_hourly_csv(
+                    ppo_hourly_rows,
+                    Path(args.out) / "ppo_hourly_detail.csv"
+                )
+                save_hourly_mean_csv(
+                    ppo_hourly_rows,
+                    Path(args.out) / "ppo_hourly_mean.csv"
+                )
 
     # 5. Write outputs
     all_csv = out_dir / "all_results.csv"
