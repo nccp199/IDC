@@ -32,7 +32,8 @@ from typing import Any, Dict, List, Sequence, Tuple
 
 import numpy as np
 
-from config_ultimate import ENV_CONFIG, REWARD_CONFIG
+from config_ultimate import DATA_CONFIG, ENV_CONFIG, REWARD_CONFIG
+from data_loader import build_external_series_from_config
 from IDCPriceEnv20D_ultimate import IDCPriceEnv20D
 
 
@@ -90,6 +91,7 @@ def make_env(seed: int) -> IDCPriceEnv20D:
     env_kwargs = {
         **ENV_CONFIG,
         **REWARD_CONFIG,
+        **build_external_series_from_config(DATA_CONFIG, ENV_CONFIG["horizon"]),
         "server_seed": seed,
         "task_seed": seed,
     }
@@ -360,7 +362,23 @@ def final_metrics_from_info(total_reward: float, info: Dict[str, Any]) -> Dict[s
         "total_cost": sf(info.get("total_cost")),
         "unit_task_cost": sf(info.get("unit_task_cost")),
         "total_energy_kWh": sf(info.get("total_energy_kWh")),
+        "P_grid_kW": sf(info.get("P_grid_kW")),
+        "grid_energy_kWh": sf(info.get("grid_energy_kWh")),
+        "idc_energy_kWh": sf(info.get("idc_energy_kWh")),
+        "total_grid_energy_kWh": sf(info.get("total_grid_energy_kWh")),
+        "total_idc_energy_kWh": sf(info.get("total_idc_energy_kWh")),
         "energy_per_task": sf(info.get("energy_per_task")),
+        "idc_energy_per_task": sf(info.get("idc_energy_per_task")),
+        "total_carbon_emission": sf(info.get("total_carbon_emission")),
+        "carbon_cost": sf(info.get("carbon_cost")),
+        "total_carbon_cost": sf(info.get("total_carbon_cost")),
+        "carbon_per_task": sf(info.get("carbon_per_task")),
+        "episode_grid_peak_power_kW": sf(info.get("episode_grid_peak_power_kW")),
+        "total_grid_peak_excess_kW_hour": sf(info.get("total_grid_peak_excess_kW_hour")),
+        "bess_soc": sf(info.get("bess_soc")),
+        "total_bess_charge_kWh": sf(info.get("total_bess_charge_kWh")),
+        "total_bess_discharge_kWh": sf(info.get("total_bess_discharge_kWh")),
+        "total_bess_degradation_cost": sf(info.get("total_bess_degradation_cost")),
         "finished_task_count": sf(info.get("finished_task_count")),
         "total_task_count": sf(info.get("total_task_count")),
         "total_pause_count": sf(info.get("total_pause_count")),
@@ -376,6 +394,9 @@ def evaluate_action_plan(action_plan: np.ndarray, env_seed: int) -> Dict[str, fl
 
     action_plan = np.asarray(action_plan, dtype=np.float32)
     expected_shape = (env.horizon, env.action_dim)
+    if action_plan.shape == (env.horizon, env.action_dim - 1):
+        neutral_bess = np.full((env.horizon, 1), 0.5, dtype=np.float32)
+        action_plan = np.concatenate([action_plan, neutral_bess], axis=1)
     if action_plan.shape != expected_shape:
         raise ValueError(f"action_plan shape 应为 {expected_shape}，实际 {action_plan.shape}")
 
@@ -402,6 +423,9 @@ def evaluate_ppo_model(model: Any, env_seed: int) -> Dict[str, float]:
 
     for _ in range(env.horizon):
         action, _state = model.predict(obs, deterministic=True)
+        action = np.asarray(action, dtype=np.float32).reshape(-1)
+        if action.shape[0] == env.action_dim - 1:
+            action = np.concatenate([action, np.array([0.5], dtype=np.float32)])
         obs, reward, terminated, truncated, info = env.step(action)
         total_reward += float(reward)
         if terminated or truncated:
@@ -436,7 +460,23 @@ SUMMARY_KEYS = [
     "total_cost",
     "unit_task_cost",
     "total_energy_kWh",
+    "P_grid_kW",
+    "grid_energy_kWh",
+    "idc_energy_kWh",
+    "total_grid_energy_kWh",
+    "total_idc_energy_kWh",
     "energy_per_task",
+    "idc_energy_per_task",
+    "total_carbon_emission",
+    "carbon_cost",
+    "total_carbon_cost",
+    "carbon_per_task",
+    "episode_grid_peak_power_kW",
+    "total_grid_peak_excess_kW_hour",
+    "bess_soc",
+    "total_bess_charge_kWh",
+    "total_bess_discharge_kWh",
+    "total_bess_degradation_cost",
 ]
 
 
@@ -456,7 +496,14 @@ def ordered_fieldnames(rows: List[Dict[str, Any]]) -> List[str]:
         "completion_rate", "task_completion_rate", "total_completed_work",
         "final_backlog_work", "deadline_miss_rate", "deadline_miss_count",
         "avg_waiting_time", "avg_turnaround_time", "total_cost", "unit_task_cost",
-        "total_energy_kWh", "energy_per_task", "finished_task_count", "total_task_count",
+        "total_energy_kWh", "P_grid_kW", "grid_energy_kWh", "idc_energy_kWh",
+        "total_grid_energy_kWh", "total_idc_energy_kWh",
+        "energy_per_task", "idc_energy_per_task", "total_carbon_emission",
+        "carbon_cost", "total_carbon_cost", "carbon_per_task",
+        "episode_grid_peak_power_kW", "total_grid_peak_excess_kW_hour",
+        "bess_soc", "total_bess_charge_kWh",
+        "total_bess_discharge_kWh", "total_bess_degradation_cost",
+        "finished_task_count", "total_task_count",
         "total_pause_count", "total_resume_count", "total_non_interruptible_interruption_count",
     ]
     keys = set()

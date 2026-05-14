@@ -30,7 +30,8 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 import numpy as np
 
 from IDCPriceEnv20D_ultimate import IDCPriceEnv20D
-from config_ultimate import ENV_CONFIG, REWARD_CONFIG
+from config_ultimate import DATA_CONFIG, ENV_CONFIG, REWARD_CONFIG
+from data_loader import build_external_series_from_config
 
 
 # =========================
@@ -47,6 +48,7 @@ def make_env(seed: int) -> IDCPriceEnv20D:
     env_kwargs = {
         **ENV_CONFIG,
         **REWARD_CONFIG,
+        **build_external_series_from_config(DATA_CONFIG, ENV_CONFIG["horizon"]),
         "server_seed": seed,
         "task_seed": seed,
     }
@@ -63,16 +65,42 @@ METRIC_KEYS = [
     "task_completion_rate",
     "total_completed_work",
     "final_backlog_work",
+    "overflow_work",
     "deadline_miss_rate",
+    "sla_violation_rate",
+    "sla_penalty",
+    "avg_task_delay",
+    "max_task_delay",
     "avg_waiting_time",
     "avg_turnaround_time",
     "total_cost",
     "unit_task_cost",
+    "P_grid_kW",
+    "grid_energy_kWh",
+    "idc_energy_kWh",
+    "carbon_cost",
     "total_energy_kWh",
+    "total_grid_energy_kWh",
+    "total_idc_energy_kWh",
     "energy_per_task",
+    "idc_energy_per_task",
+    "total_carbon_emission",
+    "total_carbon_cost",
+    "carbon_per_task",
+    "episode_grid_peak_power_kW",
+    "total_grid_peak_excess_kW_hour",
+    "episode_peak_power_kW",
+    "total_peak_excess_kW_hour",
+    "load_change",
+    "action_change",
+    "bess_soc",
+    "total_bess_charge_kWh",
+    "total_bess_discharge_kWh",
+    "total_bess_degradation_cost",
     "finished_task_count",
     "total_task_count",
     "deadline_miss_count",
+    "sla_violation_count",
     "total_pause_count",
     "total_resume_count",
     "total_non_interruptible_interruption_count",
@@ -84,13 +112,31 @@ SUMMARY_KEYS = [
     "task_completion_rate",
     "total_completed_work",
     "final_backlog_work",
+    "overflow_work",
     "deadline_miss_rate",
+    "sla_violation_rate",
+    "sla_penalty",
+    "avg_task_delay",
     "avg_waiting_time",
     "avg_turnaround_time",
     "total_cost",
     "unit_task_cost",
     "total_energy_kWh",
+    "total_grid_energy_kWh",
+    "total_idc_energy_kWh",
     "energy_per_task",
+    "idc_energy_per_task",
+    "total_carbon_emission",
+    "total_carbon_cost",
+    "carbon_per_task",
+    "episode_grid_peak_power_kW",
+    "total_grid_peak_excess_kW_hour",
+    "episode_peak_power_kW",
+    "total_peak_excess_kW_hour",
+    "bess_soc",
+    "total_bess_charge_kWh",
+    "total_bess_discharge_kWh",
+    "total_bess_degradation_cost",
 ]
 
 PRIMARY_PRINT_KEYS = [
@@ -98,8 +144,16 @@ PRIMARY_PRINT_KEYS = [
     "task_completion_rate",
     "final_backlog_work",
     "deadline_miss_rate",
+    "sla_violation_rate",
     "unit_task_cost",
+    "carbon_per_task",
+    "total_grid_energy_kWh",
+    "total_idc_energy_kWh",
     "total_cost",
+    "total_carbon_emission",
+    "total_carbon_cost",
+    "episode_grid_peak_power_kW",
+    "episode_peak_power_kW",
     "total_reward",
 ]
 
@@ -123,19 +177,45 @@ def final_metrics_from_info(total_reward: float, info: Dict[str, Any]) -> Dict[s
         "total_reward": float(total_reward),
         "fitness": float(total_reward),
         "total_energy_kWh": safe_float(info.get("total_energy_kWh")),
+        "P_grid_kW": safe_float(info.get("P_grid_kW")),
+        "grid_energy_kWh": safe_float(info.get("grid_energy_kWh")),
+        "idc_energy_kWh": safe_float(info.get("idc_energy_kWh")),
+        "carbon_cost": safe_float(info.get("carbon_cost")),
+        "total_grid_energy_kWh": safe_float(info.get("total_grid_energy_kWh")),
+        "total_idc_energy_kWh": safe_float(info.get("total_idc_energy_kWh")),
         "total_cost": safe_float(info.get("total_cost")),
         "total_completed_work": safe_float(info.get("total_completed_work")),
         "completion_rate": safe_float(info.get("completion_rate")),
         "unit_task_cost": safe_float(info.get("unit_task_cost")),
         "energy_per_task": safe_float(info.get("energy_per_task")),
+        "idc_energy_per_task": safe_float(info.get("idc_energy_per_task")),
         "final_backlog_work": safe_float(info.get("final_backlog_work", info.get("Q"))),
+        "overflow_work": safe_float(info.get("overflow_work")),
         "task_completion_rate": safe_float(info.get("task_completion_rate")),
         "finished_task_count": safe_float(info.get("finished_task_count")),
         "total_task_count": safe_float(info.get("total_task_count")),
         "deadline_miss_rate": safe_float(info.get("deadline_miss_rate")),
         "deadline_miss_count": safe_float(info.get("deadline_miss_count")),
+        "sla_penalty": safe_float(info.get("sla_penalty")),
+        "sla_violation_rate": safe_float(info.get("sla_violation_rate")),
+        "sla_violation_count": safe_float(info.get("sla_violation_count")),
+        "avg_task_delay": safe_float(info.get("avg_task_delay")),
+        "max_task_delay": safe_float(info.get("max_task_delay")),
         "avg_waiting_time": safe_float(info.get("avg_waiting_time")),
         "avg_turnaround_time": safe_float(info.get("avg_turnaround_time")),
+        "total_carbon_emission": safe_float(info.get("total_carbon_emission")),
+        "total_carbon_cost": safe_float(info.get("total_carbon_cost")),
+        "carbon_per_task": safe_float(info.get("carbon_per_task")),
+        "episode_grid_peak_power_kW": safe_float(info.get("episode_grid_peak_power_kW")),
+        "total_grid_peak_excess_kW_hour": safe_float(info.get("total_grid_peak_excess_kW_hour")),
+        "episode_peak_power_kW": safe_float(info.get("episode_peak_power_kW")),
+        "total_peak_excess_kW_hour": safe_float(info.get("total_peak_excess_kW_hour")),
+        "load_change": safe_float(info.get("load_change")),
+        "action_change": safe_float(info.get("action_change")),
+        "bess_soc": safe_float(info.get("bess_soc")),
+        "total_bess_charge_kWh": safe_float(info.get("total_bess_charge_kWh")),
+        "total_bess_discharge_kWh": safe_float(info.get("total_bess_discharge_kWh")),
+        "total_bess_degradation_cost": safe_float(info.get("total_bess_degradation_cost")),
         "total_pause_count": safe_float(info.get("total_pause_count")),
         "total_resume_count": safe_float(info.get("total_resume_count")),
         "total_non_interruptible_interruption_count": safe_float(
@@ -144,15 +224,134 @@ def final_metrics_from_info(total_reward: float, info: Dict[str, Any]) -> Dict[s
     }
 
 
+def build_hourly_row(
+    algorithm: str,
+    env_seed: int,
+    run_idx: int,
+    step: int,
+    action: np.ndarray,
+    reward: float,
+    info: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Build one unified hourly row for all online policies."""
+    return {
+        "algorithm": algorithm,
+        "seed": int(env_seed),
+        "run_idx": int(run_idx),
+        "step": int(step),
+        "hour": int(info.get("hour", step)),
+        "price": safe_float(info.get("price")),
+        "carbon_factor": safe_float(info.get("carbon_factor")),
+        "PV": safe_float(info.get("PV")),
+        "WT": safe_float(info.get("WT")),
+        "lambda_t": safe_float(info.get("lambda_t")),
+        "action_mean": safe_float(info.get("action_mean", np.mean(action))),
+        "action_min": safe_float(info.get("action_min")),
+        "action_max": safe_float(info.get("action_max")),
+        "urgent_preference": safe_float(info.get("urgent_preference")),
+        "continuity_preference": safe_float(info.get("continuity_preference")),
+        "bess_raw_action": safe_float(info.get("bess_raw_action")),
+        "planned_task_load_mean": safe_float(info.get("planned_task_load_mean")),
+        "planned_total_load_mean": safe_float(info.get("planned_total_load_mean")),
+        "actual_task_load_mean": safe_float(info.get("actual_task_load_mean")),
+        "actual_total_load_mean": safe_float(info.get("actual_total_load_mean")),
+        "planned_capacity": safe_float(info.get("planned_capacity")),
+        "completed_work": safe_float(info.get("completed_work")),
+        "unused_capacity": safe_float(info.get("unused_capacity")),
+        "backlog_work": safe_float(info.get("backlog_work", info.get("Q"))),
+        "queue_capacity_ref": safe_float(info.get("queue_capacity_ref")),
+        "overflow_work": safe_float(info.get("overflow_work")),
+        "P_IDC": safe_float(info.get("P_IDC")),
+        "P_IDC_kW": safe_float(info.get("P_IDC_kW")),
+        "P_grid_kW": safe_float(info.get("P_grid_kW")),
+        "grid_power_kW": safe_float(info.get("grid_power_kW")),
+        "grid_power_limit_kW": safe_float(info.get("grid_power_limit_kW")),
+        "bess_soc": safe_float(info.get("bess_soc")),
+        "bess_energy_kWh": safe_float(info.get("bess_energy_kWh")),
+        "desired_bess_charge_power_kW": safe_float(info.get("desired_bess_charge_power_kW")),
+        "desired_bess_discharge_power_kW": safe_float(info.get("desired_bess_discharge_power_kW")),
+        "bess_charge_power_kW": safe_float(info.get("bess_charge_power_kW")),
+        "bess_discharge_power_kW": safe_float(info.get("bess_discharge_power_kW")),
+        "bess_charge_kWh": safe_float(info.get("bess_charge_kWh")),
+        "bess_discharge_kWh": safe_float(info.get("bess_discharge_kWh")),
+        "bess_degradation_cost": safe_float(info.get("bess_degradation_cost")),
+        "invalid_bess_action": safe_float(info.get("invalid_bess_action")),
+        "soc_deviation": safe_float(info.get("soc_deviation")),
+        "soc_excess": safe_float(info.get("soc_excess")),
+        "total_bess_charge_kWh": safe_float(info.get("total_bess_charge_kWh")),
+        "total_bess_discharge_kWh": safe_float(info.get("total_bess_discharge_kWh")),
+        "total_bess_degradation_cost": safe_float(info.get("total_bess_degradation_cost")),
+        "P_IT": safe_float(info.get("P_IT")),
+        "P_cooling": safe_float(info.get("P_cooling")),
+        "PUE": safe_float(info.get("PUE")),
+        "COP": safe_float(info.get("COP")),
+        "grid_peak_power_kW": safe_float(info.get("grid_peak_power_kW")),
+        "grid_peak_excess_kW": safe_float(info.get("grid_peak_excess_kW")),
+        "episode_grid_peak_power_kW": safe_float(info.get("episode_grid_peak_power_kW")),
+        "total_grid_peak_excess_kW_hour": safe_float(info.get("total_grid_peak_excess_kW_hour")),
+        "idc_peak_power_kW": safe_float(info.get("idc_peak_power_kW")),
+        "peak_power_kW": safe_float(info.get("peak_power_kW")),
+        "peak_excess_kW": safe_float(info.get("peak_excess_kW")),
+        "episode_peak_power_kW": safe_float(info.get("episode_peak_power_kW")),
+        "total_peak_excess_kW_hour": safe_float(info.get("total_peak_excess_kW_hour")),
+        "energy_kWh": safe_float(info.get("energy_kWh")),
+        "grid_energy_kWh": safe_float(info.get("grid_energy_kWh")),
+        "idc_energy_kWh": safe_float(info.get("idc_energy_kWh")),
+        "hourly_cost": safe_float(info.get("hourly_cost", info.get("cost"))),
+        "carbon_emission": safe_float(info.get("carbon_emission")),
+        "carbon_cost": safe_float(info.get("carbon_cost")),
+        "new_deadline_miss_count": safe_float(info.get("new_deadline_miss_count")),
+        "deadline_miss_count": safe_float(info.get("deadline_miss_count")),
+        "sla_penalty": safe_float(info.get("sla_penalty")),
+        "sla_violation_count": safe_float(info.get("sla_violation_count")),
+        "sla_violation_rate": safe_float(info.get("sla_violation_rate")),
+        "avg_task_delay": safe_float(info.get("avg_task_delay")),
+        "max_task_delay": safe_float(info.get("max_task_delay")),
+        "load_change": safe_float(info.get("load_change")),
+        "action_change": safe_float(info.get("action_change")),
+        "pause_count_this_step": safe_float(info.get("pause_count_this_step")),
+        "resume_count_this_step": safe_float(info.get("resume_count_this_step")),
+        "non_interruptible_interruption_this_step": safe_float(
+            info.get("non_interruptible_interruption_this_step")
+        ),
+        "r_done": safe_float(info.get("r_done")),
+        "r_cost": safe_float(info.get("r_cost")),
+        "r_carbon": safe_float(info.get("r_carbon")),
+        "r_queue": safe_float(info.get("r_queue")),
+        "r_queue_overflow": safe_float(info.get("r_queue_overflow")),
+        "r_urgent_backlog": safe_float(info.get("r_urgent_backlog")),
+        "r_waiting": safe_float(info.get("r_waiting")),
+        "r_deadline": safe_float(info.get("r_deadline")),
+        "r_sla": safe_float(info.get("r_sla")),
+        "r_unused": safe_float(info.get("r_unused")),
+        "r_grid_peak": safe_float(info.get("r_grid_peak")),
+        "r_peak_load": safe_float(info.get("r_peak_load")),
+        "r_pause": safe_float(info.get("r_pause")),
+        "r_resume": safe_float(info.get("r_resume")),
+        "r_non_interruptible": safe_float(info.get("r_non_interruptible")),
+        "r_load_smooth": safe_float(info.get("r_load_smooth")),
+        "r_action_smooth": safe_float(info.get("r_action_smooth")),
+        "r_bess_degradation": safe_float(info.get("r_bess_degradation")),
+        "r_bess_invalid_action": safe_float(info.get("r_bess_invalid_action")),
+        "r_final_queue": safe_float(info.get("r_final_queue")),
+        "r_soc_final": safe_float(info.get("r_soc_final")),
+        "reward": float(reward),
+        "reward_total": safe_float(info.get("reward_total", reward)),
+    }
+
+
 # =========================
 # Basic policy evaluation
 # =========================
 
 def action_zero(env: IDCPriceEnv20D, rng: Optional[np.random.Generator] = None) -> np.ndarray:
-    return np.zeros(env.action_dim, dtype=np.float32)
+    # Extreme action baseline: action[22]=0 means maximum BESS charge tendency.
+    action = np.zeros(env.action_dim, dtype=np.float32)
+    return action
 
 
 def action_one(env: IDCPriceEnv20D, rng: Optional[np.random.Generator] = None) -> np.ndarray:
+    # Extreme action baseline: action[22]=1 means maximum BESS discharge tendency.
     return np.ones(env.action_dim, dtype=np.float32)
 
 
@@ -160,6 +359,15 @@ def action_random(env: IDCPriceEnv20D, rng: Optional[np.random.Generator] = None
     if rng is None:
         rng = np.random.default_rng()
     return rng.uniform(0.0, 1.0, size=env.action_dim).astype(np.float32)
+
+
+def ensure_env_action_dim(action: np.ndarray, env: IDCPriceEnv20D) -> np.ndarray:
+    action = np.asarray(action, dtype=np.float32).reshape(-1)
+    if action.shape[0] == env.action_dim:
+        return action
+    if action.shape[0] == env.action_dim - 1:
+        return np.concatenate([action, np.array([0.5], dtype=np.float32)]).astype(np.float32)
+    raise ValueError(f"action shape should be ({env.action_dim},), got {action.shape}")
 
 
 def action_rule(env: IDCPriceEnv20D, rng: Optional[np.random.Generator] = None) -> np.ndarray:
@@ -186,6 +394,13 @@ def action_rule(env: IDCPriceEnv20D, rng: Optional[np.random.Generator] = None) 
     action[: env.model.N] = server_level
     action[env.model.N] = 0.85      # urgent preference
     action[env.model.N + 1] = 0.80  # continuity preference
+    if env.action_dim > env.model.N + 2:
+        if np.isclose(price_now, low):
+            action[env.model.N + 2] = 0.20
+        elif np.isclose(price_now, high):
+            action[env.model.N + 2] = 0.80
+        else:
+            action[env.model.N + 2] = 0.50
     return np.clip(action, 0.0, 1.0).astype(np.float32)
 
 
@@ -202,6 +417,7 @@ def evaluate_basic_policy(
     env_seed: int,
     rng_seed: Optional[int] = None,
     random_run: int = 0,
+    hourly_rows: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     if algorithm not in POLICY_FUNCS:
         raise ValueError(f"Unknown basic policy: {algorithm}")
@@ -213,10 +429,24 @@ def evaluate_basic_policy(
     total_reward = 0.0
     info: Dict[str, Any] = {}
 
-    for _ in range(env.horizon):
+    for step in range(env.horizon):
         action = POLICY_FUNCS[algorithm](env, rng)
         obs, reward, terminated, truncated, info = env.step(action)
         total_reward += float(reward)
+
+        if hourly_rows is not None:
+            hourly_rows.append(
+                build_hourly_row(
+                    algorithm=algorithm,
+                    env_seed=env_seed,
+                    run_idx=random_run,
+                    step=step,
+                    action=action,
+                    reward=float(reward),
+                    info=info,
+                )
+            )
+
         if terminated or truncated:
             break
 
@@ -268,26 +498,22 @@ def evaluate_ppo(model: Any, env_seed: int, hourly_rows=None) -> Dict[str, Any]:
 
     for step in range(env.horizon):
         action, _state = model.predict(obs, deterministic=True)
+        action = ensure_env_action_dim(action, env)
         obs, reward, terminated, truncated, info = env.step(action)
         total_reward += float(reward)
 
         if hourly_rows is not None:
-            hourly_rows.append({
-                "algorithm": "PPO",
-                "seed": int(env_seed),
-                "step": int(step),
-                "hour": int(info.get("hour", step)),
-                "price": float(info.get("price", 0.0)),
-                "action_mean": float(info.get("action_mean", np.mean(action))),
-                "actual_total_load_mean": float(info.get("actual_total_load_mean", np.nan)),
-                "planned_task_load_mean": float(info.get("planned_task_load_mean", np.nan)),
-                "planned_capacity": float(info.get("planned_capacity", np.nan)),
-                "completed_work": float(info.get("completed_work", np.nan)),
-                "unused_capacity": float(info.get("unused_capacity", np.nan)),
-                "hourly_cost": float(info.get("hourly_cost", info.get("cost", np.nan))),
-                "backlog_work": float(info.get("Q", info.get("backlog_work", np.nan))),
-                "reward": float(reward),
-            })
+            hourly_rows.append(
+                build_hourly_row(
+                    algorithm="PPO",
+                    env_seed=env_seed,
+                    run_idx=0,
+                    step=step,
+                    action=np.asarray(action, dtype=np.float32),
+                    reward=float(reward),
+                    info=info,
+                )
+            )
 
         if terminated or truncated:
             break
@@ -370,16 +596,41 @@ def ordered_fieldnames(rows: List[Dict[str, Any]]) -> List[str]:
         "task_completion_rate",
         "total_completed_work",
         "final_backlog_work",
+        "overflow_work",
         "deadline_miss_rate",
+        "sla_violation_rate",
+        "sla_penalty",
+        "avg_task_delay",
         "avg_waiting_time",
         "avg_turnaround_time",
         "total_cost",
         "unit_task_cost",
+        "P_grid_kW",
+        "grid_energy_kWh",
+        "idc_energy_kWh",
+        "carbon_cost",
         "total_energy_kWh",
+        "total_grid_energy_kWh",
+        "total_idc_energy_kWh",
         "energy_per_task",
+        "idc_energy_per_task",
+        "total_carbon_emission",
+        "total_carbon_cost",
+        "carbon_per_task",
+        "episode_grid_peak_power_kW",
+        "total_grid_peak_excess_kW_hour",
+        "episode_peak_power_kW",
+        "total_peak_excess_kW_hour",
+        "bess_soc",
+        "total_bess_charge_kWh",
+        "total_bess_discharge_kWh",
+        "total_bess_degradation_cost",
+        "load_change",
+        "action_change",
         "finished_task_count",
         "total_task_count",
         "deadline_miss_count",
+        "sla_violation_count",
         "total_pause_count",
         "total_resume_count",
         "total_non_interruptible_interruption_count",
@@ -427,24 +678,92 @@ def save_hourly_mean_csv(rows, out_path):
 
     keys = [
         "price",
+        "carbon_factor",
         "action_mean",
         "actual_total_load_mean",
         "planned_task_load_mean",
         "planned_capacity",
         "completed_work",
         "unused_capacity",
+        "energy_kWh",
+        "grid_energy_kWh",
+        "idc_energy_kWh",
         "hourly_cost",
+        "carbon_emission",
+        "carbon_cost",
+        "P_IDC",
+        "P_IDC_kW",
+        "P_grid_kW",
+        "grid_power_kW",
+        "grid_power_limit_kW",
+        "bess_soc",
+        "bess_energy_kWh",
+        "desired_bess_charge_power_kW",
+        "desired_bess_discharge_power_kW",
+        "bess_charge_power_kW",
+        "bess_discharge_power_kW",
+        "bess_charge_kWh",
+        "bess_discharge_kWh",
+        "bess_degradation_cost",
+        "invalid_bess_action",
+        "soc_deviation",
+        "soc_excess",
+        "total_bess_charge_kWh",
+        "total_bess_discharge_kWh",
+        "total_bess_degradation_cost",
+        "P_cooling",
+        "PUE",
+        "COP",
+        "grid_peak_power_kW",
+        "grid_peak_excess_kW",
+        "episode_grid_peak_power_kW",
+        "total_grid_peak_excess_kW_hour",
+        "idc_peak_power_kW",
+        "peak_power_kW",
+        "peak_excess_kW",
+        "episode_peak_power_kW",
+        "total_peak_excess_kW_hour",
         "backlog_work",
+        "overflow_work",
+        "deadline_miss_count",
+        "sla_penalty",
+        "sla_violation_rate",
+        "avg_task_delay",
+        "load_change",
+        "action_change",
+        "r_cost",
+        "r_carbon",
+        "r_queue",
+        "r_queue_overflow",
+        "r_urgent_backlog",
+        "r_waiting",
+        "r_deadline",
+        "r_sla",
+        "r_unused",
+        "r_grid_peak",
+        "r_peak_load",
+        "r_pause",
+        "r_resume",
+        "r_non_interruptible",
+        "r_load_smooth",
+        "r_action_smooth",
+        "r_bess_degradation",
+        "r_bess_invalid_action",
+        "r_final_queue",
+        "r_soc_final",
         "reward",
     ]
 
-    hours = sorted(set(int(r["hour"]) for r in rows))
+    groups = sorted(set((str(r["algorithm"]), int(r["hour"])) for r in rows))
     mean_rows = []
 
-    for h in hours:
-        h_rows = [r for r in rows if int(r["hour"]) == h]
+    for alg, h in groups:
+        h_rows = [
+            r for r in rows
+            if str(r["algorithm"]) == alg and int(r["hour"]) == h
+        ]
         out = {
-            "algorithm": "PPO",
+            "algorithm": alg,
             "hour": h,
             "n": len(h_rows),
         }
@@ -573,6 +892,7 @@ def main() -> None:
     print(f"output dir: {out_dir.resolve()}")
 
     all_rows: List[Dict[str, Any]] = []
+    hourly_rows: List[Dict[str, Any]] = []
     start_time = time.time()
 
     # 1. Basic policies
@@ -580,7 +900,7 @@ def main() -> None:
         print("\n>>> Evaluating basic policies: ZERO, ONE, RANDOM, RULE")
         for seed in seeds:
             for alg in ["ZERO", "ONE", "RULE"]:
-                row = evaluate_basic_policy(alg, seed)
+                row = evaluate_basic_policy(alg, seed, hourly_rows=hourly_rows)
                 all_rows.append(row)
                 print(
                     f"{alg:<6} seed={seed} comp={row['completion_rate']:.3f} "
@@ -590,7 +910,13 @@ def main() -> None:
 
             for run_idx in range(max(args.random_runs, 1)):
                 rng_seed = seed + 30000 + 1000 * run_idx
-                row = evaluate_basic_policy("RANDOM", seed, rng_seed=rng_seed, random_run=run_idx)
+                row = evaluate_basic_policy(
+                    "RANDOM",
+                    seed,
+                    rng_seed=rng_seed,
+                    random_run=run_idx,
+                    hourly_rows=hourly_rows,
+                )
                 all_rows.append(row)
                 print(
                     f"RANDOM seed={seed} run={run_idx} comp={row['completion_rate']:.3f} "
@@ -644,9 +970,8 @@ def main() -> None:
                 print(f">>> Could not import stable_baselines3.PPO; skipped PPO. Error: {exc}")
             else:
                 model = PPO.load(str(model_path))
-                ppo_hourly_rows = []
                 for seed in seeds:
-                    row = evaluate_ppo(model, seed, ppo_hourly_rows)
+                    row = evaluate_ppo(model, seed, hourly_rows)
                     row["ppo_model_path"] = str(model_path)
                     all_rows.append(row)
                     print(
@@ -654,27 +979,25 @@ def main() -> None:
                         f"cost={row['total_cost']:.2f} unit={row['unit_task_cost']:.4f} "
                         f"backlog={row['final_backlog_work']:.2f} reward={row['total_reward']:.4f}"
                     )
-                save_hourly_csv(
-                    ppo_hourly_rows,
-                    Path(args.out) / "ppo_hourly_detail.csv"
-                )
-                save_hourly_mean_csv(
-                    ppo_hourly_rows,
-                    Path(args.out) / "ppo_hourly_mean.csv"
-                )
 
     # 5. Write outputs
     all_csv = out_dir / "all_results.csv"
     summary_csv = out_dir / "summary.csv"
+    hourly_csv = out_dir / "hourly_result.csv"
+    hourly_mean_csv = out_dir / "hourly_mean.csv"
 
     write_csv(all_csv, all_rows)
     summary_rows = build_summary(all_rows)
     write_csv(summary_csv, summary_rows)
+    save_hourly_csv(hourly_rows, hourly_csv)
+    save_hourly_mean_csv(hourly_rows, hourly_mean_csv)
     print_summary(summary_rows)
 
     print(f"\nTotal wall time: {time.time() - start_time:.2f} s")
     print(f"All results CSV: {all_csv}")
     print(f"Summary CSV:     {summary_csv}")
+    print(f"Hourly CSV:      {hourly_csv}")
+    print(f"Hourly mean CSV: {hourly_mean_csv}")
 
 
 if __name__ == "__main__":

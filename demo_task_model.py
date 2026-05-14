@@ -54,7 +54,7 @@ def main():
     L_t = np.clip(base_load + actual_task_load_t, 0.0, 1.0)
     L_matrix = model.load_balance(L_t)
 
-    P_IDC, P_IT, PUE = model.calc_pue_and_total_power(L_matrix, T_amb)
+    P_IDC, P_IT, PUE, COP, P_cooling = model.calc_pue_and_total_power(L_matrix, T_amb)
 
     metrics = model.evaluate_stage1_metrics(
         P_IDC=P_IDC,
@@ -239,6 +239,8 @@ def main():
     print(f"单位任务耗电量: {metrics['energy_per_task']:.4f} kWh / 任务量")
     print(f"单位任务成本: {metrics['unit_task_cost']:.4f} 元 / 任务量")
     print(f"平均 PUE: {np.mean(PUE):.3f}")
+    print(f"平均 COP: {np.mean(COP):.3f}")
+    print(f"平均制冷功耗: {np.mean(P_cooling) / 1000:.2f} kW")
     print(f"系统峰值功耗: {np.max(P_IDC) / 1000:.2f} kW")
     print(f"平均负载率: {np.mean(L_t):.3f}")
     print(f"峰值负载率: {np.max(L_t):.3f}")

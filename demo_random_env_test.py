@@ -11,13 +11,15 @@
 """
 
 from IDCPriceEnv20D_ultimate import IDCPriceEnv20D
-from config_ultimate import ENV_CONFIG, REWARD_CONFIG
+from config_ultimate import DATA_CONFIG, ENV_CONFIG, REWARD_CONFIG
+from data_loader import build_external_series_from_config
 
 
 def main():
     env = IDCPriceEnv20D(
     **ENV_CONFIG,
     **REWARD_CONFIG,
+    **build_external_series_from_config(DATA_CONFIG, ENV_CONFIG["horizon"]),
     server_seed=2026,
     task_seed=2026,
     )
@@ -49,6 +51,14 @@ def main():
             f"planned_cap={info['planned_capacity']:.2f} | "
             f"completed={info['completed_work']:.2f} | "
             f"unused={info['unused_capacity']:.2f} | "
+            f"P_IDC={info['P_IDC_kW']:.2f}kW | "
+            f"P_grid={info['P_grid_kW']:.2f}kW | "
+            f"grid_kWh={info['grid_energy_kWh']:.2f} | "
+            f"grid_excess={info['grid_peak_excess_kW']:.2f}kW | "
+            f"BESS_chg={info['bess_charge_power_kW']:.2f}kW | "
+            f"BESS_dis={info['bess_discharge_power_kW']:.2f}kW | "
+            f"carbon={info['carbon_emission']:.2f}kg | "
+            f"SOC={info['bess_soc']:.3f} | "
             f"cost={info['cost']:.2f} | "
             f"Q={info['Q']:.2f} | "
             f"miss={info['deadline_miss_count']} | "
@@ -78,6 +88,18 @@ def main():
     print(f"不可暂停任务中断次数: {info['total_non_interruptible_interruption_count']}")
     print(f"单位任务耗电量: {info['energy_per_task']:.4f} kWh / 任务量")
     print(f"单位任务成本: {info['unit_task_cost']:.4f} 元 / 任务量")
+    print(f"total_grid_energy_kWh: {info['total_grid_energy_kWh']:.2f} kWh")
+    print(f"total_idc_energy_kWh: {info['total_idc_energy_kWh']:.2f} kWh")
+    print(f"total_carbon_emission: {info['total_carbon_emission']:.2f} kgCO2")
+    print(f"total_carbon_cost: {info['total_carbon_cost']:.2f}")
+    print(f"carbon_per_task: {info['carbon_per_task']:.4f} kgCO2 / work")
+    print(f"idc_energy_per_task: {info['idc_energy_per_task']:.4f} kWh / work")
+    print(f"episode_grid_peak_power_kW: {info['episode_grid_peak_power_kW']:.2f}")
+    print(f"total_grid_peak_excess_kW_hour: {info['total_grid_peak_excess_kW_hour']:.2f}")
+    print(f"bess_soc: {info['bess_soc']:.4f}")
+    print(f"total_bess_charge_kWh: {info['total_bess_charge_kWh']:.2f}")
+    print(f"total_bess_discharge_kWh: {info['total_bess_discharge_kWh']:.2f}")
+    print(f"total_bess_degradation_cost: {info['total_bess_degradation_cost']:.4f}")
 
 
 if __name__ == "__main__":

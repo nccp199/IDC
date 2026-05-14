@@ -16,16 +16,53 @@ ENV_CONFIG = {
     "price_ref": 1.50,
     "lambda_ref": 2000.0,
     "queue_ref": 6000.0,
+    "queue_capacity_ref": 6000.0,
     "cost_ref": 60.0,
+    "carbon_ref": 15.0,
+    # carbon_price is used only to report carbon_cost from grid carbon emissions.
+    "carbon_price": 0.0,
+    "delta_t_hours": 1.0,
+    "peak_power_threshold_kW": 18.0,
+    "peak_power_ref_kW": 10.0,
+    "grid_power_limit_kW": 18.0,
+    "sla_ref": 50.0,
+    "bess_capacity_kWh": 100.0,
+    "bess_soc_init": 0.50,
+    "bess_soc_min": 0.10,
+    "bess_soc_max": 0.90,
+    "bess_soc_target": 0.50,
+    "bess_soc_final_tolerance": 0.05,
+    "bess_charge_power_max_kW": 20.0,
+    "bess_discharge_power_max_kW": 20.0,
+    "bess_charge_efficiency": 0.95,
+    "bess_discharge_efficiency": 0.95,
+    "bess_degradation_cost_per_kWh": 0.02,
     # 计划负载预留损耗系数：未被实际使用的计划负载中，有多少比例计入实际功耗。
     # 用于模拟资源预留、空转和调度开销，避免全一策略无成本地长期满负载。
     "planned_load_reserve_alpha": 0.40,
 }
 
+DATA_CONFIG = {
+    "price_csv_path": None,
+    "price_column": None,
+    "carbon_csv_path": None,
+    "carbon_column": None,
+    "temperature_csv_path": None,
+    "temperature_column": None,
+    "pv_csv_path": None,
+    "pv_column": None,
+    "wt_csv_path": None,
+    "wt_column": None,
+}
+
 REWARD_CONFIG = {
     "reward_done_weight": 5.0,
     "reward_cost_weight": 0.35,
+    # Increase this weight to prefer lower-carbon grid energy without changing reward modes.
+    "reward_carbon_weight": 0.30,
+    "reward_sla_weight": 0.80,
     "reward_queue_weight": 0.8,
+    "reward_queue_overflow_weight": 1.2,
     "reward_final_queue_weight": 3.0,
     "reward_deadline_weight": 1.2,
     "reward_unused_capacity_weight": 0.08,
@@ -37,6 +74,12 @@ REWARD_CONFIG = {
     "reward_pause_weight": 0.15,
     "reward_resume_weight": 0.03,
     "reward_non_interruptible_weight": 0.8,
+    "reward_load_smooth_weight": 0.05,
+    "reward_action_smooth_weight": 0.03,
+    "reward_bess_degradation_weight": 1.0,
+    "reward_bess_invalid_action_weight": 0.2,
+    "reward_soc_final_weight": 2.0,
+    "reward_grid_peak_weight": 1.0,
 }
 
 PPO_CONFIG = {

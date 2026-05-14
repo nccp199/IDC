@@ -25,14 +25,15 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 
-from config_ultimate import ENV_CONFIG, REWARD_CONFIG
+from config_ultimate import DATA_CONFIG, ENV_CONFIG, REWARD_CONFIG
+from data_loader import build_external_series_from_config
 from IDCPriceEnv20D_ultimate import IDCPriceEnv20D
 
 
 @dataclass
 class PSOConfig:
     horizon: int = 24
-    action_dim: int = 22
+    action_dim: int = 23
     num_particles: int = 30
     iterations: int = 30
     inertia: float = 0.70
@@ -53,6 +54,7 @@ def make_env(seed: int) -> IDCPriceEnv20D:
     env_kwargs = {
         **ENV_CONFIG,
         **REWARD_CONFIG,
+        **build_external_series_from_config(DATA_CONFIG, ENV_CONFIG["horizon"]),
         "server_seed": seed,
         "task_seed": seed,
     }
@@ -81,7 +83,7 @@ def evaluate_plan(action_plan: np.ndarray, env_seed: int, fitness_mode: str = "r
     """
     Evaluate one full-day action plan.
 
-    action_plan shape: (24, 22)
+    action_plan shape: (24, env.action_dim)
     action_plan[t] is fed to env.step() at hour t.
     """
     env = make_env(env_seed)
@@ -105,17 +107,43 @@ def evaluate_plan(action_plan: np.ndarray, env_seed: int, fitness_mode: str = "r
         "fitness": float(fitness_from_info(total_reward, info, fitness_mode)),
         "total_reward": float(total_reward),
         "total_energy_kWh": float(info.get("total_energy_kWh", np.nan)),
+        "P_grid_kW": float(info.get("P_grid_kW", np.nan)),
+        "grid_energy_kWh": float(info.get("grid_energy_kWh", np.nan)),
+        "idc_energy_kWh": float(info.get("idc_energy_kWh", np.nan)),
+        "carbon_cost": float(info.get("carbon_cost", np.nan)),
+        "total_grid_energy_kWh": float(info.get("total_grid_energy_kWh", np.nan)),
+        "total_idc_energy_kWh": float(info.get("total_idc_energy_kWh", np.nan)),
+        "total_carbon_emission": float(info.get("total_carbon_emission", np.nan)),
+        "total_carbon_cost": float(info.get("total_carbon_cost", np.nan)),
         "total_cost": float(info.get("total_cost", np.nan)),
         "total_completed_work": float(info.get("total_completed_work", np.nan)),
         "completion_rate": float(info.get("completion_rate", np.nan)),
         "unit_task_cost": float(info.get("unit_task_cost", np.nan)),
         "energy_per_task": float(info.get("energy_per_task", np.nan)),
+        "idc_energy_per_task": float(info.get("idc_energy_per_task", np.nan)),
+        "carbon_per_task": float(info.get("carbon_per_task", np.nan)),
+        "episode_grid_peak_power_kW": float(info.get("episode_grid_peak_power_kW", np.nan)),
+        "total_grid_peak_excess_kW_hour": float(info.get("total_grid_peak_excess_kW_hour", np.nan)),
+        "episode_peak_power_kW": float(info.get("episode_peak_power_kW", np.nan)),
+        "total_peak_excess_kW_hour": float(info.get("total_peak_excess_kW_hour", np.nan)),
+        "bess_soc": float(info.get("bess_soc", np.nan)),
+        "total_bess_charge_kWh": float(info.get("total_bess_charge_kWh", np.nan)),
+        "total_bess_discharge_kWh": float(info.get("total_bess_discharge_kWh", np.nan)),
+        "total_bess_degradation_cost": float(info.get("total_bess_degradation_cost", np.nan)),
         "final_backlog_work": float(info.get("final_backlog_work", info.get("Q", np.nan))),
+        "overflow_work": float(info.get("overflow_work", np.nan)),
+        "load_change": float(info.get("load_change", np.nan)),
+        "action_change": float(info.get("action_change", np.nan)),
         "task_completion_rate": float(info.get("task_completion_rate", np.nan)),
         "finished_task_count": float(info.get("finished_task_count", np.nan)),
         "total_task_count": float(info.get("total_task_count", np.nan)),
         "deadline_miss_rate": float(info.get("deadline_miss_rate", np.nan)),
         "deadline_miss_count": float(info.get("deadline_miss_count", np.nan)),
+        "sla_penalty": float(info.get("sla_penalty", np.nan)),
+        "sla_violation_rate": float(info.get("sla_violation_rate", np.nan)),
+        "sla_violation_count": float(info.get("sla_violation_count", np.nan)),
+        "avg_task_delay": float(info.get("avg_task_delay", np.nan)),
+        "max_task_delay": float(info.get("max_task_delay", np.nan)),
         "avg_waiting_time": float(info.get("avg_waiting_time", np.nan)),
         "avg_turnaround_time": float(info.get("avg_turnaround_time", np.nan)),
         "total_pause_count": float(info.get("total_pause_count", np.nan)),
@@ -148,6 +176,13 @@ def make_price_plan(env_seed: int, cfg: PSOConfig) -> np.ndarray:
         plan[t, :20] = server_level
         plan[t, 20] = 0.85
         plan[t, 21] = 0.80
+        if cfg.action_dim > 22:
+            if np.isclose(price[t], low):
+                plan[t, 22] = 0.20
+            elif np.isclose(price[t], high):
+                plan[t, 22] = 0.80
+            else:
+                plan[t, 22] = 0.50
 
     return np.clip(plan, 0.0, 1.0)
 
@@ -273,9 +308,35 @@ def summarize_rows(rows: List[Dict[str, float]]) -> None:
         "total_completed_work",
         "total_cost",
         "unit_task_cost",
+        "P_grid_kW",
+        "grid_energy_kWh",
+        "idc_energy_kWh",
+        "carbon_cost",
+        "total_energy_kWh",
+        "total_grid_energy_kWh",
+        "total_idc_energy_kWh",
+        "energy_per_task",
+        "idc_energy_per_task",
+        "total_carbon_emission",
+        "total_carbon_cost",
+        "carbon_per_task",
+        "episode_grid_peak_power_kW",
+        "total_grid_peak_excess_kW_hour",
+        "episode_peak_power_kW",
+        "total_peak_excess_kW_hour",
+        "bess_soc",
+        "total_bess_charge_kWh",
+        "total_bess_discharge_kWh",
+        "total_bess_degradation_cost",
         "final_backlog_work",
+        "overflow_work",
         "deadline_miss_rate",
+        "sla_violation_rate",
+        "sla_penalty",
+        "avg_task_delay",
         "avg_waiting_time",
+        "load_change",
+        "action_change",
     ]
 
     print("\n=== PSO summary over seeds ===")
@@ -304,7 +365,7 @@ def main() -> None:
     parser.add_argument("--n-seeds", type=int, default=1)
     parser.add_argument("--seeds", type=str, default="", help="Comma-separated env seeds, e.g. 3000,3001,3002.")
     parser.add_argument("--out", type=str, default="pso_out", help="Output directory.")
-    parser.add_argument("--save-plan", action="store_true", help="Save best 24x22 action plan as .npy for each seed.")
+    parser.add_argument("--save-plan", action="store_true", help="Save best 24x23 action plan as .npy for each seed.")
     parser.add_argument("--quiet", action="store_true", help="Do not print every iteration.")
     args = parser.parse_args()
 

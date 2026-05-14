@@ -1,5 +1,5 @@
 """
-PPO 训练脚本：256 维 ultimate 前瞻状态空间 + 22 维动作空间 + 任务启停 + 增强 reward 环境版本。
+PPO 训练脚本：256 维 ultimate 前瞻状态空间 + 23 维动作空间 + 任务启停 + 增强 reward 环境版本。
 
 运行方式：
     python train_ppo_ultimate.py
@@ -16,7 +16,8 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
 
-from config_ultimate import DEFAULT_EVAL_SEED, ENV_CONFIG, PPO_CONFIG, REWARD_CONFIG
+from config_ultimate import DATA_CONFIG, DEFAULT_EVAL_SEED, ENV_CONFIG, PPO_CONFIG, REWARD_CONFIG
+from data_loader import build_external_series_from_config
 from IDCPriceEnv20D_ultimate import IDCPriceEnv20D
 
 
@@ -30,6 +31,7 @@ def make_env(seed=None):
     env_kwargs = {
         **ENV_CONFIG,
         **REWARD_CONFIG,
+        **build_external_series_from_config(DATA_CONFIG, ENV_CONFIG["horizon"]),
         "server_seed": seed,
         "task_seed": seed,
     }
@@ -42,6 +44,7 @@ def sanity_check_env():
     env_kwargs = {
         **ENV_CONFIG,
         **REWARD_CONFIG,
+        **build_external_series_from_config(DATA_CONFIG, ENV_CONFIG["horizon"]),
         "server_seed": DEFAULT_EVAL_SEED,
         "task_seed": DEFAULT_EVAL_SEED,
     }
@@ -56,8 +59,8 @@ def sanity_check_env():
 
     if obs.shape != (256,):
         raise RuntimeError(f"状态维度错误：期望 (256,), 实际 {obs.shape}")
-    if env.action_space.shape != (22,):
-        raise RuntimeError(f"动作维度错误：期望 (22,), 实际 {env.action_space.shape}")
+    if env.action_space.shape != (23,):
+        raise RuntimeError(f"动作维度错误：期望 (23,), 实际 {env.action_space.shape}")
 
 
 def main():
@@ -121,7 +124,7 @@ def main():
 
     print("\n>>> 开始 PPO 最终版环境训练")
     print(f">>> 总步数: {args.timesteps}")
-    print(">>> 当前环境：256 维 ultimate 前瞻状态，22 维动作，Task 启停机制，增强 reward。")
+    print(">>> 当前环境：256 维 ultimate 前瞻状态，23 维动作，Task 启停机制，增强 reward。")
     print(f">>> 输出目录: {output_dir}")
 
     model.learn(

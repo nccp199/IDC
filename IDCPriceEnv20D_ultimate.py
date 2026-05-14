@@ -38,11 +38,33 @@ class IDCPriceEnv20D(gym.Env):
         price_ref: float = 1.50,
         lambda_ref: float = 1000.0,
         queue_ref: float = 1500.0,
+        queue_capacity_ref: float = 1500.0,
         cost_ref: float = 30.0,
+        carbon_ref: float = 15.0,
+        carbon_price: float = 0.0,
+        delta_t_hours: float = 1.0,
+        peak_power_threshold_kW: float = 18.0,
+        peak_power_ref_kW: float = 10.0,
+        grid_power_limit_kW: float = 18.0,
+        sla_ref: float = 50.0,
+        bess_capacity_kWh: float = 100.0,
+        bess_soc_init: float = 0.50,
+        bess_soc_min: float = 0.10,
+        bess_soc_max: float = 0.90,
+        bess_soc_target: float = 0.50,
+        bess_soc_final_tolerance: float = 0.05,
+        bess_charge_power_max_kW: float = 20.0,
+        bess_discharge_power_max_kW: float = 20.0,
+        bess_charge_efficiency: float = 0.95,
+        bess_discharge_efficiency: float = 0.95,
+        bess_degradation_cost_per_kWh: float = 0.02,
         planned_load_reserve_alpha: float = 0.25,
         reward_done_weight: float = 3.0,
         reward_cost_weight: float = 0.5,
+        reward_carbon_weight: float = 0.3,
+        reward_sla_weight: float = 0.8,
         reward_queue_weight: float = 0.8,
+        reward_queue_overflow_weight: float = 1.0,
         reward_final_queue_weight: float = 2.0,
         reward_deadline_weight: float = 0.8,
         reward_unused_capacity_weight: float = 0.10,
@@ -54,6 +76,17 @@ class IDCPriceEnv20D(gym.Env):
         reward_pause_weight: float = 0.2,
         reward_resume_weight: float = 0.05,
         reward_non_interruptible_weight: float = 1.0,
+        reward_load_smooth_weight: float = 0.05,
+        reward_action_smooth_weight: float = 0.03,
+        reward_bess_degradation_weight: float = 1.0,
+        reward_bess_invalid_action_weight: float = 0.2,
+        reward_soc_final_weight: float = 2.0,
+        reward_grid_peak_weight: float = 1.0,
+        price_t=None,
+        carbon_factor_t=None,
+        T_amb=None,
+        pv_t=None,
+        wt_t=None,
         server_seed=None,
         task_seed=None,
     ):
@@ -77,13 +110,38 @@ class IDCPriceEnv20D(gym.Env):
         self.price_ref = float(price_ref)
         self.lambda_ref = float(lambda_ref)
         self.queue_ref = float(queue_ref)
+        # queue_capacity_ref is the soft backlog capacity; Q above this is penalized, not terminated.
+        self.queue_capacity_ref = float(queue_capacity_ref)
         self.cost_ref = float(cost_ref)
+        self.carbon_ref = float(carbon_ref)
+        # carbon_price converts grid-purchased carbon emissions into a reporting-only carbon_cost.
+        self.carbon_price = float(carbon_price)
+        # delta_t_hours is the step length used to convert kW power into kWh energy.
+        self.delta_t_hours = float(delta_t_hours)
+        self.peak_power_threshold_kW = float(peak_power_threshold_kW)
+        self.peak_power_ref_kW = float(peak_power_ref_kW)
+        self.grid_power_limit_kW = float(grid_power_limit_kW)
+        self.sla_ref = float(sla_ref)
+        self.bess_capacity_kWh = float(bess_capacity_kWh)
+        self.bess_soc_init = float(bess_soc_init)
+        self.bess_soc_min = float(bess_soc_min)
+        self.bess_soc_max = float(bess_soc_max)
+        self.bess_soc_target = float(bess_soc_target)
+        self.bess_soc_final_tolerance = float(bess_soc_final_tolerance)
+        self.bess_charge_power_max_kW = float(bess_charge_power_max_kW)
+        self.bess_discharge_power_max_kW = float(bess_discharge_power_max_kW)
+        self.bess_charge_efficiency = float(bess_charge_efficiency)
+        self.bess_discharge_efficiency = float(bess_discharge_efficiency)
+        self.bess_degradation_cost_per_kWh = float(bess_degradation_cost_per_kWh)
         self.planned_load_reserve_alpha = float(planned_load_reserve_alpha)
 
         # 4. reward 权重
         self.reward_done_weight = float(reward_done_weight)
         self.reward_cost_weight = float(reward_cost_weight)
+        self.reward_carbon_weight = float(reward_carbon_weight)
+        self.reward_sla_weight = float(reward_sla_weight)
         self.reward_queue_weight = float(reward_queue_weight)
+        self.reward_queue_overflow_weight = float(reward_queue_overflow_weight)
         self.reward_final_queue_weight = float(reward_final_queue_weight)
         self.reward_deadline_weight = float(reward_deadline_weight)
         self.reward_unused_capacity_weight = float(reward_unused_capacity_weight)
@@ -95,13 +153,19 @@ class IDCPriceEnv20D(gym.Env):
         self.reward_pause_weight = float(reward_pause_weight)
         self.reward_resume_weight = float(reward_resume_weight)
         self.reward_non_interruptible_weight = float(reward_non_interruptible_weight)
+        self.reward_load_smooth_weight = float(reward_load_smooth_weight)
+        self.reward_action_smooth_weight = float(reward_action_smooth_weight)
+        self.reward_bess_degradation_weight = float(reward_bess_degradation_weight)
+        self.reward_bess_invalid_action_weight = float(reward_bess_invalid_action_weight)
+        self.reward_soc_final_weight = float(reward_soc_final_weight)
+        self.reward_grid_peak_weight = float(reward_grid_peak_weight)
 
         # 5. 动作空间：22 维
         #    action[0:20]：20 台服务器任务执行强度；
         #    action[20]：紧急任务偏好，越高越偏向 deadline 近、priority 高的任务；
         #    action[21]：连续执行偏好，越高越偏向继续执行已经启动但未完成的任务。
         self.server_action_dim = self.model.N
-        self.extra_action_dim = 2
+        self.extra_action_dim = 3
         self.action_dim = self.server_action_dim + self.extra_action_dim
         self.action_space = spaces.Box(
             low=np.zeros(self.action_dim, dtype=np.float32),
@@ -133,12 +197,22 @@ class IDCPriceEnv20D(gym.Env):
 
         # 7. 固定 24 小时外部输入
         self.hours = np.arange(self.horizon)
-        self.T_amb = 25 + 5 * np.sin(np.pi * (self.hours - 8) / 12)
+        default_T_amb = 25 + 5 * np.sin(np.pi * (self.hours - 8) / 12)
+        self.T_amb = self._validate_time_series("T_amb", T_amb) if T_amb is not None else default_T_amb
 
-        if hasattr(self.model, "create_price_curve"):
+        if price_t is not None:
+            self.price_t = self._validate_time_series("price_t", price_t)
+        elif hasattr(self.model, "create_price_curve"):
             self.price_t = self.model.create_price_curve(horizon=self.horizon)
         else:
             self.price_t = self._create_price_curve(horizon=self.horizon)
+        self.carbon_factor_t = (
+            self._validate_time_series("carbon_factor_t", carbon_factor_t)
+            if carbon_factor_t is not None
+            else self._create_carbon_factor_curve(horizon=self.horizon)
+        )
+        self.pv_t = self._validate_time_series("pv_t", pv_t) if pv_t is not None else np.zeros(self.horizon)
+        self.wt_t = self._validate_time_series("wt_t", wt_t) if wt_t is not None else np.zeros(self.horizon)
 
         # 8. 运行状态变量会在 reset() 中初始化
         self.current_step = 0
@@ -146,17 +220,42 @@ class IDCPriceEnv20D(gym.Env):
         self.lambda_t = np.zeros(self.horizon, dtype=np.float64)
         self.Q_t = 0.0
         self.prev_loads = np.full(self.model.N, self.base_load, dtype=np.float32)
+        self.prev_action = np.full(self.action_dim, 0.5, dtype=np.float32)
+        self.bess_soc = float(np.clip(self.bess_soc_init, self.bess_soc_min, self.bess_soc_max))
+        self.bess_energy_kWh = self.bess_soc * self.bess_capacity_kWh
 
         # 9. episode 累计指标
         self.total_energy_kWh = 0.0
+        self.total_idc_energy_kWh = 0.0
+        self.total_grid_energy_kWh = 0.0
         self.total_cost = 0.0
+        self.total_carbon_emission = 0.0
+        self.total_carbon_cost = 0.0
+        self.episode_peak_power_kW = 0.0
+        self.total_peak_excess_kW_hour = 0.0
+        self.episode_grid_peak_power_kW = 0.0
+        self.total_grid_peak_excess_kW_hour = 0.0
         self.total_completed_work = 0.0
+        self.total_bess_charge_kWh = 0.0
+        self.total_bess_discharge_kWh = 0.0
+        self.total_bess_degradation_cost = 0.0
         self.deadline_miss_task_ids = set()
 
         # 10. 任务启停统计指标
         self.total_pause_count = 0
         self.total_resume_count = 0
         self.total_non_interruptible_interruption_count = 0
+
+    def _validate_time_series(self, name: str, values) -> np.ndarray:
+        """Validate externally supplied hourly data before the environment uses it."""
+        arr = np.asarray(values, dtype=np.float64).reshape(-1)
+        if arr.shape[0] != self.horizon:
+            raise ValueError(
+                f"{name} length must equal horizon={self.horizon}, got {arr.shape[0]}."
+            )
+        if not np.all(np.isfinite(arr)):
+            raise ValueError(f"{name} contains NaN or infinite values.")
+        return arr
 
     def _create_price_curve(self, horizon: int = 24) -> np.ndarray:
         """备用分时电价曲线。"""
@@ -175,16 +274,58 @@ class IDCPriceEnv20D(gym.Env):
 
         return price_t
 
+    def _create_carbon_factor_curve(self, horizon: int = 24) -> np.ndarray:
+        """
+        Create a default hourly grid carbon factor curve.
+
+        Unit: kgCO2/kWh. The values are scenario assumptions for simulation:
+        lower carbon intensity around midday, higher intensity during evening
+        peak hours, and medium-high intensity overnight.
+        """
+        carbon_factor_t = np.zeros(horizon, dtype=np.float64)
+
+        low_carbon = 0.45
+        flat_carbon = 0.60
+        night_carbon = 0.70
+        peak_carbon = 0.80
+
+        for t in range(horizon):
+            if 10 <= t < 16:
+                carbon_factor_t[t] = low_carbon
+            elif 18 <= t < 22:
+                carbon_factor_t[t] = peak_carbon
+            elif 0 <= t < 7:
+                carbon_factor_t[t] = night_carbon
+            else:
+                carbon_factor_t[t] = flat_carbon
+
+        return carbon_factor_t
+
     def reset(self, seed=None, options=None):
         """重置环境，开始新的 24 小时 episode。"""
         super().reset(seed=seed)
 
         self.current_step = 0
         self.prev_loads = np.full(self.model.N, self.base_load, dtype=np.float32)
+        # prev_action anchors action smoothing; first step measures deviation from neutral dispatch.
+        self.prev_action = np.full(self.action_dim, 0.5, dtype=np.float32)
+        self.bess_soc = float(np.clip(self.bess_soc_init, self.bess_soc_min, self.bess_soc_max))
+        self.bess_energy_kWh = self.bess_soc * self.bess_capacity_kWh
 
         self.total_energy_kWh = 0.0
+        self.total_idc_energy_kWh = 0.0
+        self.total_grid_energy_kWh = 0.0
         self.total_cost = 0.0
+        self.total_carbon_emission = 0.0
+        self.total_carbon_cost = 0.0
+        self.episode_peak_power_kW = 0.0
+        self.total_peak_excess_kW_hour = 0.0
+        self.episode_grid_peak_power_kW = 0.0
+        self.total_grid_peak_excess_kW_hour = 0.0
         self.total_completed_work = 0.0
+        self.total_bess_charge_kWh = 0.0
+        self.total_bess_discharge_kWh = 0.0
+        self.total_bess_degradation_cost = 0.0
         self.deadline_miss_task_ids = set()
         self.total_pause_count = 0
         self.total_resume_count = 0
@@ -249,6 +390,8 @@ class IDCPriceEnv20D(gym.Env):
         server_action = action[:self.model.N]
         urgent_preference = float(action[self.model.N])
         continuity_preference = float(action[self.model.N + 1])
+        bess_action = float(action[self.model.N + 2])
+        bess_raw_action = 2.0 * bess_action - 1.0
 
         # 2. PPO 计划任务负载：仅用于计算计划处理能力，不直接用于功耗
         planned_task_loads = server_action * self.max_task_load_per_server
@@ -260,6 +403,9 @@ class IDCPriceEnv20D(gym.Env):
         # 3. 当前小时外部输入
         T_amb_t = float(self.T_amb[t])
         price_now = float(self.price_t[t])
+        carbon_factor_now = float(self.carbon_factor_t[t])
+        pv_now = float(self.pv_t[t])
+        wt_now = float(self.wt_t[t])
         lambda_now = float(self.lambda_t[t])
 
         # 4. 当前小时新任务到达
@@ -293,7 +439,7 @@ class IDCPriceEnv20D(gym.Env):
 
         # 7. 用实际负载计算当前小时功耗
         L_matrix = actual_total_loads.reshape(1, -1)
-        P_IDC_arr, P_IT_arr, PUE_arr = self.model.calc_pue_and_total_power(
+        P_IDC_arr, P_IT_arr, PUE_arr, COP_arr, P_cooling_arr = self.model.calc_pue_and_total_power(
             L_matrix=L_matrix,
             T_amb=np.array([T_amb_t], dtype=np.float64),
         )
@@ -301,70 +447,195 @@ class IDCPriceEnv20D(gym.Env):
         P_IDC_t = float(P_IDC_arr[0])
         P_IT_t = float(P_IT_arr[0])
         PUE_t = float(PUE_arr[0])
+        COP_t = float(COP_arr[0])
+        P_cooling_t = float(P_cooling_arr[0])
 
         # 8. 当前小时购电量和用电成本
-        energy_kWh = P_IDC_t / 1000.0
-        cost_t = energy_kWh * price_now
+        # P_IDC is actual IDC demand: IT + cooling + other infrastructure.
+        # P_grid is grid purchase after BESS charge/discharge; no sell-back is allowed.
+        P_IDC_kW = P_IDC_t / 1000.0
+        if bess_raw_action < 0.0:
+            desired_bess_charge_power_kW = abs(bess_raw_action) * self.bess_charge_power_max_kW
+            desired_bess_discharge_power_kW = 0.0
+        else:
+            desired_bess_charge_power_kW = 0.0
+            desired_bess_discharge_power_kW = bess_raw_action * self.bess_discharge_power_max_kW
+
+        current_bess_energy_kWh = self.bess_energy_kWh
+        max_charge_energy_by_soc = max(
+            (self.bess_soc_max - self.bess_soc) * self.bess_capacity_kWh,
+            0.0,
+        )
+        max_discharge_energy_by_soc = max(
+            (self.bess_soc - self.bess_soc_min) * self.bess_capacity_kWh,
+            0.0,
+        )
+        charge_power_limit_by_soc = (
+            max_charge_energy_by_soc / max(self.delta_t_hours * self.bess_charge_efficiency, 1e-6)
+        )
+        discharge_power_limit_by_soc = (
+            max_discharge_energy_by_soc * self.bess_discharge_efficiency / max(self.delta_t_hours, 1e-6)
+        )
+        # SOC and charge/discharge power are hard-clipped in the environment.
+        bess_charge_power_kW = min(
+            desired_bess_charge_power_kW,
+            self.bess_charge_power_max_kW,
+            charge_power_limit_by_soc,
+        )
+        bess_discharge_power_kW = min(
+            desired_bess_discharge_power_kW,
+            self.bess_discharge_power_max_kW,
+            discharge_power_limit_by_soc,
+            P_IDC_kW,
+        )
+
+        bess_charge_kWh = bess_charge_power_kW * self.delta_t_hours
+        bess_discharge_kWh = bess_discharge_power_kW * self.delta_t_hours
+        charged_energy_to_battery = bess_charge_kWh * self.bess_charge_efficiency
+        discharged_energy_from_battery = bess_discharge_kWh / max(self.bess_discharge_efficiency, 1e-6)
+        bess_energy_next = current_bess_energy_kWh + charged_energy_to_battery - discharged_energy_from_battery
+        bess_energy_next = float(np.clip(
+            bess_energy_next,
+            self.bess_soc_min * self.bess_capacity_kWh,
+            self.bess_soc_max * self.bess_capacity_kWh,
+        ))
+        bess_soc_next = bess_energy_next / max(self.bess_capacity_kWh, 1e-6)
+
+        bess_throughput_kWh = bess_charge_kWh + bess_discharge_kWh
+        bess_degradation_cost = bess_throughput_kWh * self.bess_degradation_cost_per_kWh
+        invalid_bess_action = (
+            abs(desired_bess_charge_power_kW - bess_charge_power_kW)
+            + abs(desired_bess_discharge_power_kW - bess_discharge_power_kW)
+        )
+        P_grid_kW = max(P_IDC_kW + bess_charge_power_kW - bess_discharge_power_kW, 0.0)
+
+        idc_energy_kWh = P_IDC_kW * self.delta_t_hours
+        grid_energy_kWh = P_grid_kW * self.delta_t_hours
+        # Backward-compatible alias: energy_kWh now means grid-purchased energy for cost/carbon.
+        energy_kWh = grid_energy_kWh
+        cost_t = grid_energy_kWh * price_now
+        carbon_emission_t = grid_energy_kWh * carbon_factor_now
+        carbon_cost_t = carbon_emission_t * self.carbon_price
 
         # 9. 更新任务积压统计
         Q_next = self._compute_backlog_work()
 
         # 10. 累计统计
-        self.total_energy_kWh += energy_kWh
+        self.total_idc_energy_kWh += idc_energy_kWh
+        self.total_grid_energy_kWh += grid_energy_kWh
+        # total_energy_kWh is kept for old scripts and follows total_grid_energy_kWh.
+        self.total_energy_kWh = self.total_grid_energy_kWh
         self.total_cost += cost_t
+        self.total_carbon_emission += carbon_emission_t
+        self.total_carbon_cost += carbon_cost_t
         self.total_completed_work += completed_work
+        self.total_bess_charge_kWh += bess_charge_kWh
+        self.total_bess_discharge_kWh += bess_discharge_kWh
+        self.total_bess_degradation_cost += bess_degradation_cost
 
         # 11. reward：任务类综合奖励
         # 奖励项：完成工作量、完整完成任务数、高优先级任务完成；
         # 惩罚项：成本、普通积压、紧急积压、等待压力、超时、未使用能力、高电价高负载、暂停/恢复和不可暂停任务中断。
         urgent_backlog_work, avg_waiting_pressure = self._compute_reward_task_pressure(current_time=t)
+        sla_metrics = self._compute_sla_metrics(current_time=t + 1)
 
         completed_norm = completed_work / self.queue_ref
         finished_task_norm = newly_finished_count / max(len(self.tasks), 1)
         priority_finish_norm = newly_finished_priority_sum / max(5.0 * len(self.tasks), 1e-6)
         cost_norm = cost_t / self.cost_ref
+        carbon_norm = carbon_emission_t / max(self.carbon_ref, 1e-6)
         queue_norm = Q_next / self.queue_ref
+        # overflow_work is the portion of backlog above the soft queue capacity.
+        overflow_work = max(Q_next - self.queue_capacity_ref, 0.0)
+        overflow_norm = overflow_work / max(self.queue_ref, 1e-6)
         urgent_backlog_norm = urgent_backlog_work / max(self.queue_ref, 1e-6)
         waiting_norm = avg_waiting_pressure / max(self.horizon, 1)
         deadline_miss_norm = new_deadline_miss_count / max(len(self.tasks), 1)
+        sla_penalty_norm = sla_metrics["sla_penalty"] / max(self.sla_ref, 1e-6)
         unused_capacity_norm = unused_capacity / max(self.queue_ref, 1e-6)
-        price_min = float(np.min(self.price_t))
-        price_max = float(np.max(self.price_t))
-        price_pressure = (price_now - price_min) / max(price_max - price_min, 1e-6)
-        peak_load_norm = price_pressure * float(np.mean(planned_task_loads))        
+        # Grid peak is based on P_grid; P_IDC_kW remains the physical IDC load metric.
+        grid_power_kW = P_grid_kW
+        grid_peak_power_kW = grid_power_kW
+        grid_peak_excess_kW = max(grid_power_kW - self.grid_power_limit_kW, 0.0)
+        self.episode_grid_peak_power_kW = max(self.episode_grid_peak_power_kW, grid_power_kW)
+        self.total_grid_peak_excess_kW_hour += grid_peak_excess_kW * self.delta_t_hours
+        # Backward-compatible aliases: peak_power_kW now means grid purchase peak power.
+        peak_power_kW = grid_power_kW
+        peak_excess_kW = grid_peak_excess_kW
+        self.episode_peak_power_kW = self.episode_grid_peak_power_kW
+        self.total_peak_excess_kW_hour = self.total_grid_peak_excess_kW_hour
+        peak_load_norm = grid_peak_excess_kW / max(self.peak_power_ref_kW, 1e-6)
         pause_norm = pause_count_this_step / max(len(self.tasks), 1)
         resume_norm = resume_count_this_step / max(len(self.tasks), 1)
         non_interruptible_norm = non_interruptible_interruption_this_step / max(len(self.tasks), 1)
+        # load_change penalizes rapid server utilization movement between adjacent hours.
+        load_change = float(np.mean(np.abs(actual_total_loads - self.prev_loads)))
+        # action_change penalizes policy jitter between adjacent continuous action vectors.
+        action_change = float(np.mean(np.abs(action - self.prev_action)))
+        bess_power_ref = max(self.bess_charge_power_max_kW, self.bess_discharge_power_max_kW, 1e-6)
 
+        # Positive rewards: completed work and finished tasks.
         r_done = self.reward_done_weight * completed_norm
         r_finished_task = self.reward_finished_task_weight * finished_task_norm
         r_priority_finish = self.reward_priority_finish_weight * priority_finish_norm
+
+        # Cost penalties: electricity cost and grid carbon emissions from IDC power.
         r_cost = -self.reward_cost_weight * cost_norm
+        r_carbon = -self.reward_carbon_weight * carbon_norm
+
+        # Queue and service-quality penalties: backlog, urgent backlog, deadline, SLA, and final queue.
         r_queue = -self.reward_queue_weight * queue_norm
+        r_queue_overflow = -self.reward_queue_overflow_weight * overflow_norm
         r_urgent_backlog = -self.reward_urgent_backlog_weight * urgent_backlog_norm
         r_waiting = -self.reward_waiting_weight * waiting_norm
         r_deadline = -self.reward_deadline_weight * deadline_miss_norm
+        r_sla = -self.reward_sla_weight * sla_penalty_norm
+
+        # Resource and scheduling penalties: unused capacity, peak load, interruptions, and smoothing.
         r_unused = -self.reward_unused_capacity_weight * unused_capacity_norm
-        r_peak_load = -self.reward_peak_load_weight * peak_load_norm
+        r_grid_peak = -self.reward_grid_peak_weight * peak_load_norm
+        r_peak_load = r_grid_peak
         r_pause = -self.reward_pause_weight * pause_norm
         r_resume = -self.reward_resume_weight * resume_norm
         r_non_interruptible = -self.reward_non_interruptible_weight * non_interruptible_norm
+        r_load_smooth = -self.reward_load_smooth_weight * load_change
+        r_action_smooth = -self.reward_action_smooth_weight * action_change
+
+        # BESS penalties: degradation and invalid clipped actions are soft reward terms.
+        r_bess_degradation = (
+            -self.reward_bess_degradation_weight
+            * bess_degradation_cost
+            / max(self.cost_ref, 1e-6)
+        )
+        r_bess_invalid_action = (
+            -self.reward_bess_invalid_action_weight
+            * invalid_bess_action
+            / bess_power_ref
+        )
         r_final_queue = 0.0
+        r_soc_final = 0.0
 
         reward = (
             r_done
             + r_finished_task
             + r_priority_finish
             + r_cost
+            + r_carbon
             + r_queue
+            + r_queue_overflow
             + r_urgent_backlog
             + r_waiting
             + r_deadline
+            + r_sla
             + r_unused
             + r_peak_load
             + r_pause
             + r_resume
             + r_non_interruptible
+            + r_load_smooth
+            + r_action_smooth
+            + r_bess_degradation
+            + r_bess_invalid_action
         )
 
         terminated = (self.current_step + 1) >= self.horizon
@@ -372,13 +643,23 @@ class IDCPriceEnv20D(gym.Env):
 
         # 最后一小时额外惩罚最终积压，避免 PPO 一直拖任务
         if terminated:
-            final_queue_norm = Q_next / self.queue_ref
+            final_queue_norm = Q_next / max(self.queue_ref, 1e-6)
             r_final_queue = -self.reward_final_queue_weight * final_queue_norm
             reward += r_final_queue
+            soc_deviation = abs(bess_soc_next - self.bess_soc_target)
+            soc_excess = max(soc_deviation - self.bess_soc_final_tolerance, 0.0)
+            r_soc_final = -self.reward_soc_final_weight * soc_excess
+            reward += r_soc_final
+        else:
+            soc_deviation = abs(bess_soc_next - self.bess_soc_target)
+            soc_excess = 0.0
 
         # 12. 更新环境内部状态
         self.Q_t = Q_next
         self.prev_loads = actual_total_loads.astype(np.float32)
+        self.prev_action = action.copy()
+        self.bess_soc = float(bess_soc_next)
+        self.bess_energy_kWh = float(bess_energy_next)
         self.current_step += 1
 
         # 13. 生成下一状态
@@ -399,14 +680,21 @@ class IDCPriceEnv20D(gym.Env):
 
         if self.total_completed_work > 0:
             unit_task_cost = self.total_cost / self.total_completed_work
-            energy_per_task = self.total_energy_kWh / self.total_completed_work
+            energy_per_task = self.total_grid_energy_kWh / self.total_completed_work
+            idc_energy_per_task = self.total_idc_energy_kWh / self.total_completed_work
+            carbon_per_task = self.total_carbon_emission / self.total_completed_work
         else:
             unit_task_cost = np.inf
             energy_per_task = np.inf
+            idc_energy_per_task = np.inf
+            carbon_per_task = np.inf
 
         info = {
             "hour": t,
             "price": price_now,
+            "carbon_factor": carbon_factor_now,
+            "PV": pv_now,
+            "WT": wt_now,
             "lambda_t": lambda_now,
 
             "action_mean": float(np.mean(server_action)),
@@ -414,6 +702,7 @@ class IDCPriceEnv20D(gym.Env):
             "action_max": float(np.max(server_action)),
             "urgent_preference": urgent_preference,
             "continuity_preference": continuity_preference,
+            "bess_raw_action": float(bess_raw_action),
 
             "planned_task_load_mean": float(np.mean(planned_task_loads)),
             "planned_total_load_mean": float(np.mean(planned_total_loads)),
@@ -426,6 +715,8 @@ class IDCPriceEnv20D(gym.Env):
             "unused_capacity": unused_capacity,
             "Q": Q_next,
             "backlog_work": Q_next,
+            "queue_capacity_ref": float(self.queue_capacity_ref),
+            "overflow_work": float(overflow_work),
 
             "newly_finished_count": newly_finished_count,
             "newly_finished_priority_sum": float(newly_finished_priority_sum),
@@ -433,6 +724,14 @@ class IDCPriceEnv20D(gym.Env):
             "avg_waiting_pressure": float(avg_waiting_pressure),
             "new_deadline_miss_count": new_deadline_miss_count,
             "deadline_miss_count": task_metrics["deadline_miss_count"],
+            "sla_penalty": float(sla_metrics["sla_penalty"]),
+            "sla_penalty_norm": float(sla_penalty_norm),
+            "sla_violation_count": int(sla_metrics["sla_violation_count"]),
+            "sla_violation_rate": float(sla_metrics["sla_violation_rate"]),
+            "avg_task_delay": float(sla_metrics["avg_task_delay"]),
+            "max_task_delay": float(sla_metrics["max_task_delay"]),
+            "load_change": float(load_change),
+            "action_change": float(action_change),
 
             "pause_count_this_step": pause_count_this_step,
             "resume_count_this_step": resume_count_this_step,
@@ -446,30 +745,82 @@ class IDCPriceEnv20D(gym.Env):
             "r_finished_task": float(r_finished_task),
             "r_priority_finish": float(r_priority_finish),
             "r_cost": float(r_cost),
+            "r_carbon": float(r_carbon),
             "r_queue": float(r_queue),
+            "r_queue_overflow": float(r_queue_overflow),
             "r_urgent_backlog": float(r_urgent_backlog),
             "r_waiting": float(r_waiting),
             "r_deadline": float(r_deadline),
+            "r_sla": float(r_sla),
             "r_unused": float(r_unused),
+            "r_grid_peak": float(r_grid_peak),
             "r_peak_load": float(r_peak_load),
             "r_pause": float(r_pause),
             "r_resume": float(r_resume),
             "r_non_interruptible": float(r_non_interruptible),
+            "r_load_smooth": float(r_load_smooth),
+            "r_action_smooth": float(r_action_smooth),
+            "r_bess_degradation": float(r_bess_degradation),
+            "r_bess_invalid_action": float(r_bess_invalid_action),
             "r_final_queue": float(r_final_queue),
+            "r_soc_final": float(r_soc_final),
             "reward_total": float(reward),
 
             "P_IDC": P_IDC_t,
+            "P_IDC_kW": float(P_IDC_kW),
+            "P_grid_kW": float(P_grid_kW),
+            "grid_power_kW": float(grid_power_kW),
+            "grid_power_limit_kW": float(self.grid_power_limit_kW),
+            "bess_soc": float(self.bess_soc),
+            "bess_energy_kWh": float(self.bess_energy_kWh),
+            "desired_bess_charge_power_kW": float(desired_bess_charge_power_kW),
+            "desired_bess_discharge_power_kW": float(desired_bess_discharge_power_kW),
+            "bess_charge_power_kW": float(bess_charge_power_kW),
+            "bess_discharge_power_kW": float(bess_discharge_power_kW),
+            "bess_charge_kWh": float(bess_charge_kWh),
+            "bess_discharge_kWh": float(bess_discharge_kWh),
+            "bess_degradation_cost": float(bess_degradation_cost),
+            "invalid_bess_action": float(invalid_bess_action),
+            "soc_deviation": float(soc_deviation),
+            "soc_excess": float(soc_excess),
+            "total_bess_charge_kWh": float(self.total_bess_charge_kWh),
+            "total_bess_discharge_kWh": float(self.total_bess_discharge_kWh),
+            "total_bess_degradation_cost": float(self.total_bess_degradation_cost),
             "P_IT": P_IT_t,
             "PUE": PUE_t,
+            "COP": COP_t,
+            "P_cooling": P_cooling_t,
+            "grid_peak_power_kW": float(grid_peak_power_kW),
+            "grid_peak_excess_kW": float(grid_peak_excess_kW),
+            "episode_grid_peak_power_kW": float(self.episode_grid_peak_power_kW),
+            "total_grid_peak_excess_kW_hour": float(self.total_grid_peak_excess_kW_hour),
+            "idc_peak_power_kW": float(P_IDC_kW),
+            # peak_* fields are legacy aliases for grid-side peak metrics after BESS.
+            "peak_power_kW": float(peak_power_kW),
+            "peak_power_threshold_kW": float(self.grid_power_limit_kW),
+            "peak_excess_kW": float(peak_excess_kW),
+            "episode_peak_power_kW": float(self.episode_peak_power_kW),
+            "total_peak_excess_kW_hour": float(self.total_peak_excess_kW_hour),
             "energy_kWh": energy_kWh,
+            "grid_energy_kWh": float(grid_energy_kWh),
+            "idc_energy_kWh": float(idc_energy_kWh),
             "cost": cost_t,
+            "hourly_cost": cost_t,
+            "carbon_emission": carbon_emission_t,
+            "carbon_cost": float(carbon_cost_t),
 
             "total_energy_kWh": self.total_energy_kWh,
+            "total_grid_energy_kWh": self.total_grid_energy_kWh,
+            "total_idc_energy_kWh": self.total_idc_energy_kWh,
             "total_cost": self.total_cost,
+            "total_carbon_emission": self.total_carbon_emission,
+            "total_carbon_cost": self.total_carbon_cost,
             "total_completed_work": self.total_completed_work,
             "completion_rate": completion_rate,
             "unit_task_cost": unit_task_cost,
             "energy_per_task": energy_per_task,
+            "idc_energy_per_task": idc_energy_per_task,
+            "carbon_per_task": carbon_per_task,
 
             **task_metrics,
         }
@@ -781,7 +1132,9 @@ class IDCPriceEnv20D(gym.Env):
 
         for task in unfinished_tasks:
             deadline_left = task.latest_finish_time - current_time
-            if deadline_left <= urgent_window:
+            priority = float(getattr(task, "priority", 1.0))
+            # Urgent backlog means work whose latest finish time is close/overdue or priority is high.
+            if deadline_left <= urgent_window or priority >= 4.0:
                 urgent_backlog_work += float(task.remaining_work)
 
             # 对已经到达但尚未完成的任务，记录其滞留时间。
@@ -796,6 +1149,55 @@ class IDCPriceEnv20D(gym.Env):
         )
 
         return float(urgent_backlog_work), float(avg_waiting_pressure)
+
+    def _compute_sla_metrics(self, current_time: int) -> dict:
+        """
+        Compute simple SLA violation pressure for unfinished overdue tasks.
+
+        Penalty unit is priority-weighted delay hours:
+        sla_penalty = sum(priority_i * delay_hours_i).
+        """
+        arrived_tasks = [
+            task for task in self.tasks
+            if task.arrival_time < self.horizon
+        ]
+        active_tasks = [
+            task for task in arrived_tasks
+            if task.status not in ["not_arrived", "finished", "failed"]
+            and task.remaining_work > 1e-6
+        ]
+
+        delay_list = []
+        weighted_delay_list = []
+
+        for task in active_tasks:
+            delay_hours = max(0.0, float(current_time - task.latest_finish_time))
+            if delay_hours <= 0.0:
+                continue
+
+            priority = max(float(getattr(task, "priority", 1.0)), 0.0)
+            delay_list.append(delay_hours)
+            weighted_delay_list.append(priority * delay_hours)
+
+        total_task_count = max(len(arrived_tasks), 1)
+        sla_violation_count = len(delay_list)
+        sla_penalty = float(np.sum(weighted_delay_list)) if weighted_delay_list else 0.0
+
+        return {
+            "sla_penalty": sla_penalty,
+            "sla_violation_count": int(sla_violation_count),
+            "sla_violation_rate": float(sla_violation_count / total_task_count),
+            "avg_task_delay": (
+                float(np.mean(delay_list))
+                if len(delay_list) > 0
+                else 0.0
+            ),
+            "max_task_delay": (
+                float(np.max(delay_list))
+                if len(delay_list) > 0
+                else 0.0
+            ),
+        }
 
     def _compute_task_metrics(self) -> dict:
         """计算任务级统计指标。"""

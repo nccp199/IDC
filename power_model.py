@@ -135,9 +135,11 @@ class IDCPowerModel:
                 0.1
             )
 
+            P_cooling = P_IT / COP
             PUE = 1.0 + (1.0 / COP) + (self.P_others / P_IT)
+            P_IDC = P_IT + P_cooling + self.P_others
 
-            return P_IT * PUE, P_IT, PUE
+            return P_IDC, P_IT, PUE, COP, P_cooling
 
     def create_price_curve(self, horizon: int = 24) -> np.ndarray:
             """
