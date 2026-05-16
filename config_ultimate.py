@@ -7,6 +7,20 @@
 3. 保持原 ultimate 版本的核心参数不变。
 """
 
+from pathlib import Path
+
+
+# All scripts write reports, CSVs, figures, and model artifacts under this root by default.
+OUTPUT_ROOT = "report_outputs"
+
+
+def resolve_output_path(name_or_path: str) -> Path:
+    path = Path(name_or_path)
+    if path.is_absolute():
+        return path
+    return Path(OUTPUT_ROOT) / path
+
+
 ENV_CONFIG = {
     "horizon": 24,
     "base_load": 0.05,

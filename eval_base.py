@@ -30,8 +30,12 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 import numpy as np
 
 from IDCPriceEnv20D_ultimate import IDCPriceEnv20D
-from config_ultimate import DATA_CONFIG, ENV_CONFIG, REWARD_CONFIG
+from config_ultimate import resolve_output_path
 from data_loader import build_external_series_from_config
+from experiment_cases import get_experiment_case, print_experiment_case
+
+
+ACTIVE_CASE_CONFIG = get_experiment_case("main")
 
 
 # =========================
@@ -45,10 +49,13 @@ def make_env(seed: int) -> IDCPriceEnv20D:
     The seed fixes both server parameters and task generation,
     so PPO / GA / PSO / rule baselines are compared on the same scenarios.
     """
+    env_config = ACTIVE_CASE_CONFIG["env_config"]
+    reward_config = ACTIVE_CASE_CONFIG["reward_config"]
+    data_config = ACTIVE_CASE_CONFIG["data_config"]
     env_kwargs = {
-        **ENV_CONFIG,
-        **REWARD_CONFIG,
-        **build_external_series_from_config(DATA_CONFIG, ENV_CONFIG["horizon"]),
+        **env_config,
+        **reward_config,
+        **build_external_series_from_config(data_config, env_config["horizon"]),
         "server_seed": seed,
         "task_seed": seed,
     }
@@ -404,11 +411,66 @@ def action_rule(env: IDCPriceEnv20D, rng: Optional[np.random.Generator] = None) 
     return np.clip(action, 0.0, 1.0).astype(np.float32)
 
 
+def action_fast_neutral_bess(env: IDCPriceEnv20D, rng: Optional[np.random.Generator] = None) -> np.ndarray:
+    """Traditional fast execution baseline without active BESS use."""
+    action = np.zeros(env.action_dim, dtype=np.float32)
+    action[: env.model.N] = 0.95
+    action[env.model.N] = 0.85
+    action[env.model.N + 1] = 0.80
+    if env.action_dim > env.model.N + 2:
+        action[env.model.N + 2] = 0.50
+    return np.clip(action, 0.0, 1.0).astype(np.float32)
+
+
+def action_uniform_neutral_bess(env: IDCPriceEnv20D, rng: Optional[np.random.Generator] = None) -> np.ndarray:
+    """Fixed uniform-load baseline without active BESS use."""
+    action = np.zeros(env.action_dim, dtype=np.float32)
+    action[: env.model.N] = 0.60
+    action[env.model.N] = 0.75
+    action[env.model.N + 1] = 0.75
+    if env.action_dim > env.model.N + 2:
+        action[env.model.N + 2] = 0.50
+    return np.clip(action, 0.0, 1.0).astype(np.float32)
+
+
+def action_rule_price_only(env: IDCPriceEnv20D, rng: Optional[np.random.Generator] = None) -> np.ndarray:
+    """Time-of-use price scheduling baseline with neutral BESS."""
+    t = int(env.current_step)
+    price = np.asarray(env.price_t, dtype=np.float64)
+    price_now = float(price[t])
+    low = float(np.min(price))
+    high = float(np.max(price))
+
+    if np.isclose(price_now, low):
+        server_level = 0.95
+    elif np.isclose(price_now, high):
+        server_level = 0.25
+    else:
+        server_level = 0.55
+
+    action = np.zeros(env.action_dim, dtype=np.float32)
+    action[: env.model.N] = server_level
+    action[env.model.N] = 0.85
+    action[env.model.N + 1] = 0.80
+    if env.action_dim > env.model.N + 2:
+        action[env.model.N + 2] = 0.50
+    return np.clip(action, 0.0, 1.0).astype(np.float32)
+
+
+def action_rule_price_bess(env: IDCPriceEnv20D, rng: Optional[np.random.Generator] = None) -> np.ndarray:
+    """Time-of-use price scheduling baseline with charge/discharge BESS rule."""
+    return action_rule(env, rng)
+
+
 POLICY_FUNCS = {
     "ZERO": action_zero,
     "ONE": action_one,
     "RANDOM": action_random,
     "RULE": action_rule,
+    "FAST_NEUTRAL_BESS": action_fast_neutral_bess,
+    "UNIFORM_NEUTRAL_BESS": action_uniform_neutral_bess,
+    "RULE_PRICE_ONLY": action_rule_price_only,
+    "RULE_PRICE_BESS": action_rule_price_bess,
 }
 
 
@@ -465,18 +527,41 @@ def evaluate_basic_policy(
 # =========================
 
 def resolve_ppo_model_path(model_arg: str) -> Optional[Path]:
-    if model_arg.lower() in {"", "none", "skip"}:
+    model_text = (model_arg or "").strip()
+    model_lower = model_text.lower()
+    if model_lower in {"", "none", "skip"}:
         return None
 
-    if model_arg.lower() != "auto":
-        path = Path(model_arg)
+    if model_lower != "auto":
+        path = Path(model_text).expanduser()
         if path.exists():
+            if path.is_dir():
+                for candidate in [path / "best_model.zip", path / "ppo_idc_ultimate_final.zip"]:
+                    if candidate.exists():
+                        return candidate
+                raise FileNotFoundError(
+                    f"PPO model path is a directory, but no best_model.zip or "
+                    f"ppo_idc_ultimate_final.zip was found inside: {path}"
+                )
             return path
-        if path.with_suffix(".zip").exists():
-            return path.with_suffix(".zip")
-        return None
+        zip_path = path if path.suffix.lower() == ".zip" else path.with_suffix(".zip")
+        if zip_path.exists():
+            return zip_path
+        raise FileNotFoundError(
+            f"PPO model not found: {path}. Also tried: {zip_path}. "
+            "Please pass an absolute path or a path relative to the project directory."
+        )
 
     candidates = [
+        resolve_output_path("ppo_outputs_ultimate/best_model/best_model.zip"),
+        resolve_output_path("ppo_outputs_ultimate/models/ppo_idc_ultimate_final.zip"),
+        resolve_output_path("ppo_outputs_ultimate/best_model.zip"),
+        resolve_output_path("ppo_outputs_ultimate_main/best_model/best_model.zip"),
+        resolve_output_path("ppo_outputs_ultimate_main/models/ppo_idc_ultimate_final.zip"),
+        resolve_output_path("ppo_outputs_report_main/best_model/best_model.zip"),
+        resolve_output_path("ppo_outputs_report_main/models/ppo_idc_ultimate_final.zip"),
+        resolve_output_path("ppo_outputs_report_carbon_w03/best_model/best_model.zip"),
+        resolve_output_path("ppo_outputs_report_carbon_w03/models/ppo_idc_ultimate_final.zip"),
         Path("ppo_outputs_ultimate/best_model/best_model.zip"),
         Path("ppo_outputs_ultimate/models/ppo_idc_ultimate_final.zip"),
         Path("ppo_outputs_ultimate/best_model.zip"),
@@ -489,7 +574,7 @@ def resolve_ppo_model_path(model_arg: str) -> Optional[Path]:
     return None
 
 
-def evaluate_ppo(model: Any, env_seed: int, hourly_rows=None) -> Dict[str, Any]:
+def evaluate_ppo(model: Any, env_seed: int, ppo_name: str = "PPO", hourly_rows=None) -> Dict[str, Any]:
     env = make_env(env_seed)
     obs, reset_info = env.reset()
 
@@ -505,7 +590,7 @@ def evaluate_ppo(model: Any, env_seed: int, hourly_rows=None) -> Dict[str, Any]:
         if hourly_rows is not None:
             hourly_rows.append(
                 build_hourly_row(
-                    algorithm="PPO",
+                    algorithm=ppo_name,
                     env_seed=env_seed,
                     run_idx=0,
                     step=step,
@@ -519,7 +604,7 @@ def evaluate_ppo(model: Any, env_seed: int, hourly_rows=None) -> Dict[str, Any]:
             break
 
     row: Dict[str, Any] = {
-        "algorithm": "PPO",
+        "algorithm": ppo_name,
         "seed": int(env_seed),
         "source": "eval_ppo",
         "run_idx": 0,
@@ -680,6 +765,7 @@ def save_hourly_mean_csv(rows, out_path):
         "price",
         "carbon_factor",
         "action_mean",
+        "actual_task_load_mean",
         "actual_total_load_mean",
         "planned_task_load_mean",
         "planned_capacity",
@@ -777,7 +863,9 @@ def save_hourly_mean_csv(rows, out_path):
                 except Exception:
                     pass
 
-            out[f"{key}_mean"] = sum(vals) / len(vals) if vals else ""
+            mean_value = sum(vals) / len(vals) if vals else ""
+            out[key] = mean_value
+            out[f"{key}_mean"] = mean_value
 
         mean_rows.append(out)
 
@@ -828,7 +916,7 @@ def print_summary(summary: List[Dict[str, Any]]) -> None:
 
     print("\n=== Unified summary, sorted by completion/backlog/unit cost ===")
     header = (
-        f"{'algorithm':<10} {'n':>4} "
+        f"{'algorithm':<22} {'n':>4} "
         f"{'comp':>9} {'task_comp':>10} {'backlog':>12} {'miss':>9} "
         f"{'unit_cost':>10} {'cost':>10} {'reward':>10}"
     )
@@ -837,7 +925,7 @@ def print_summary(summary: List[Dict[str, Any]]) -> None:
 
     for row in summary:
         print(
-            f"{str(row['algorithm']):<10} {int(row['n_seeds']):>4} "
+            f"{str(row['algorithm']):<22} {int(row['n_seeds']):>4} "
             f"{safe_float(row.get('completion_rate_mean')):>9.4f} "
             f"{safe_float(row.get('task_completion_rate_mean')):>10.4f} "
             f"{safe_float(row.get('final_backlog_work_mean')):>12.2f} "
@@ -859,12 +947,15 @@ def parse_seeds(args: argparse.Namespace) -> List[int]:
 
 
 def main() -> None:
+    global ACTIVE_CASE_CONFIG
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--quick", action="store_true", help="Fast smoke test: seed=3000 only, no PPO unless model exists.")
+    parser.add_argument("--case", type=str, default="main", help="Experiment case: main, no_bess, carbon_w0, carbon_w03, carbon_w05.")
     parser.add_argument("--start-seed", type=int, default=3000)
     parser.add_argument("--n-seeds", type=int, default=30)
     parser.add_argument("--seeds", type=str, default="", help="Comma-separated seeds, e.g. 3000,3001,3002.")
-    parser.add_argument("--out", type=str, default="eval_out", help="Output directory.")
+    parser.add_argument("--out", type=str, default=None, help="Output directory. Defaults to report_outputs/eval_<case>.")
 
     parser.add_argument("--random-runs", type=int, default=1, help="Random policy repetitions per seed.")
     parser.add_argument("--no-basic", action="store_true", help="Skip ZERO/ONE/RANDOM/RULE evaluation.")
@@ -875,19 +966,24 @@ def main() -> None:
     parser.add_argument("--ga-csv", type=str, default="auto", help="Path to GA CSV, or auto.")
     parser.add_argument("--pso-csv", type=str, default="auto", help="Path to PSO CSV, or auto.")
     parser.add_argument("--ppo-model", type=str, default="auto", help="PPO model .zip path, auto, or skip.")
+    parser.add_argument("--ppo-name", type=str, default="PPO", help="Algorithm name used for PPO rows in output CSVs.")
     args = parser.parse_args()
+
+    ACTIVE_CASE_CONFIG = get_experiment_case(args.case)
+    print_experiment_case(ACTIVE_CASE_CONFIG)
 
     if args.quick:
         args.n_seeds = 1
         if not args.seeds.strip():
             args.start_seed = 3000
 
-    out_dir = Path(args.out)
+    out_dir = resolve_output_path(f"eval_{ACTIVE_CASE_CONFIG['case']}") if args.out is None else Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
     seeds = parse_seeds(args)
     wanted_seeds = set(seeds)
 
     print("=== Unified baseline evaluation ===")
+    print(f"case: {ACTIVE_CASE_CONFIG['case']}")
     print(f"seeds: {seeds}")
     print(f"output dir: {out_dir.resolve()}")
 
@@ -897,13 +993,22 @@ def main() -> None:
 
     # 1. Basic policies
     if not args.no_basic:
-        print("\n>>> Evaluating basic policies: ZERO, ONE, RANDOM, RULE")
+        deterministic_policies = [
+            "ZERO",
+            "ONE",
+            "RULE",
+            "FAST_NEUTRAL_BESS",
+            "UNIFORM_NEUTRAL_BESS",
+            "RULE_PRICE_ONLY",
+            "RULE_PRICE_BESS",
+        ]
+        print("\n>>> Evaluating basic policies: " + ", ".join(deterministic_policies + ["RANDOM"]))
         for seed in seeds:
-            for alg in ["ZERO", "ONE", "RULE"]:
+            for alg in deterministic_policies:
                 row = evaluate_basic_policy(alg, seed, hourly_rows=hourly_rows)
                 all_rows.append(row)
                 print(
-                    f"{alg:<6} seed={seed} comp={row['completion_rate']:.3f} "
+                    f"{alg:<20} seed={seed} comp={row['completion_rate']:.3f} "
                     f"cost={row['total_cost']:.2f} unit={row['unit_task_cost']:.4f} "
                     f"backlog={row['final_backlog_work']:.2f} reward={row['total_reward']:.4f}"
                 )
@@ -928,6 +1033,8 @@ def main() -> None:
     if not args.no_ga:
         if args.ga_csv.lower() == "auto":
             ga_path = first_existing_path([
+                resolve_output_path("ga_out/ga_stress_30_30_results.csv"),
+                resolve_output_path("ga_out/ga_results.csv"),
                 "ga_out/ga_stress_30_30_results.csv",
                 "ga_out/ga_results.csv",
             ])
@@ -944,6 +1051,8 @@ def main() -> None:
     if not args.no_pso:
         if args.pso_csv.lower() == "auto":
             pso_path = first_existing_path([
+                resolve_output_path("pso_out/pso_stress_30_30_results.csv"),
+                resolve_output_path("pso_out/pso_results.csv"),
                 "pso_out/pso_stress_30_30_results.csv",
                 "pso_out/pso_results.csv",
             ])
@@ -958,12 +1067,19 @@ def main() -> None:
 
     # 4. PPO evaluation
     if not args.no_ppo:
-        model_path = resolve_ppo_model_path(args.ppo_model)
+        ppo_model_arg = (args.ppo_model or "").strip()
+        try:
+            model_path = resolve_ppo_model_path(ppo_model_arg)
+        except FileNotFoundError as exc:
+            raise SystemExit(f"\n>>> {exc}") from exc
         if model_path is None:
-            print("\n>>> PPO model not found; skipped PPO evaluation.")
-            print("    Use --ppo-model your_model.zip, or add --no-ppo to skip intentionally.")
+            if ppo_model_arg.lower() == "auto":
+                print("\n>>> 未找到 PPO 模型；请使用 --ppo-model 手动指定从台式机复制过来的模型路径。")
+            else:
+                print("\n>>> Skipped PPO evaluation by --ppo-model none/skip.")
         else:
             print(f"\n>>> Evaluating PPO model: {model_path}")
+            print(f">>> PPO algorithm name: {args.ppo_name}")
             try:
                 from stable_baselines3 import PPO
             except Exception as exc:
@@ -971,11 +1087,11 @@ def main() -> None:
             else:
                 model = PPO.load(str(model_path))
                 for seed in seeds:
-                    row = evaluate_ppo(model, seed, hourly_rows)
+                    row = evaluate_ppo(model, seed, ppo_name=args.ppo_name, hourly_rows=hourly_rows)
                     row["ppo_model_path"] = str(model_path)
                     all_rows.append(row)
                     print(
-                        f"PPO    seed={seed} comp={row['completion_rate']:.3f} "
+                        f"{args.ppo_name:<20} seed={seed} comp={row['completion_rate']:.3f} "
                         f"cost={row['total_cost']:.2f} unit={row['unit_task_cost']:.4f} "
                         f"backlog={row['final_backlog_work']:.2f} reward={row['total_reward']:.4f}"
                     )

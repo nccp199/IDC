@@ -25,7 +25,7 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 
-from config_ultimate import DATA_CONFIG, ENV_CONFIG, REWARD_CONFIG
+from config_ultimate import DATA_CONFIG, ENV_CONFIG, REWARD_CONFIG, resolve_output_path
 from data_loader import build_external_series_from_config
 from IDCPriceEnv20D_ultimate import IDCPriceEnv20D
 
@@ -380,7 +380,7 @@ def main() -> None:
     parser.add_argument("--start-seed", type=int, default=3000)
     parser.add_argument("--n-seeds", type=int, default=1)
     parser.add_argument("--seeds", type=str, default="", help="Comma-separated env seeds, e.g. 3000,3001,3002.")
-    parser.add_argument("--out", type=str, default="ga_out", help="Output directory.")
+    parser.add_argument("--out", type=str, default=None, help="Output directory. Defaults to report_outputs/ga_out.")
     parser.add_argument("--save-plan", action="store_true", help="Save best 24x23 action plan as .npy for each seed.")
     parser.add_argument("--quiet", action="store_true", help="Do not print every generation.")
     args = parser.parse_args()
@@ -401,7 +401,7 @@ def main() -> None:
         fitness_mode=args.fitness,
     )
 
-    out_dir = Path(args.out)
+    out_dir = resolve_output_path("ga_out") if args.out is None else Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
     seeds = parse_seeds(args)
 

@@ -15,7 +15,24 @@
 !demo_task_model.py
 !eval_nn_reuse.py
 !data_loader.py
+!export_task_timeline_sin.py
+!experiment_cases.py
 
 # 允许上传说明文件和 gitignore 本身
 !README.md
 !.gitignore
+
+# Generated outputs and large artifacts
+report_outputs/
+__pycache__/
+*.pyc
+*.pkl
+*.zip
+*.npy
+*.csv
+*.png
+*.jpg
+*.jpeg
+*.pdf
+*.log
+events.out.tfevents*

@@ -32,7 +32,7 @@ from typing import Any, Dict, List, Sequence, Tuple
 
 import numpy as np
 
-from config_ultimate import DATA_CONFIG, ENV_CONFIG, REWARD_CONFIG
+from config_ultimate import DATA_CONFIG, ENV_CONFIG, REWARD_CONFIG, resolve_output_path
 from data_loader import build_external_series_from_config
 from IDCPriceEnv20D_ultimate import IDCPriceEnv20D
 
@@ -77,9 +77,9 @@ FEATURE_GROUP_WEIGHTS = {
     "temperature_curve": 0.5,
 }
 
-GA_PLAN_TEMPLATE = "ga_out/ga_plan_seed{seed}.npy"
-PSO_PLAN_TEMPLATE = "pso_out/pso_plan_seed{seed}.npy"
-DEFAULT_PPO_MODEL = "ppo_outputs_mid_balance_1m/models/ppo_idc_ultimate_final.zip"
+GA_PLAN_TEMPLATE = str(resolve_output_path("ga_out/ga_plan_seed{seed}.npy"))
+PSO_PLAN_TEMPLATE = str(resolve_output_path("pso_out/pso_plan_seed{seed}.npy"))
+DEFAULT_PPO_MODEL = str(resolve_output_path("ppo_outputs_mid_balance_1m/models/ppo_idc_ultimate_final.zip"))
 
 
 # ============================================================
@@ -600,7 +600,7 @@ def main() -> None:
 
     history_seeds = parse_seed_range(args.history_start, args.history_n)
     eval_seeds = parse_seed_range(args.eval_start, args.eval_n)
-    out_dir = Path(args.out)
+    out_dir = resolve_output_path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     print("=== Nearest-neighbor historical-plan reuse evaluation ===")
