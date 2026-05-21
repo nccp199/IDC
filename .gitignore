@@ -1,7 +1,7 @@
-# 默认忽略所有文件
+# Ignore everything by default.
 *
 
-# 允许上传 Python 源代码
+# Root compatibility entry points and legacy root files.
 !config_ultimate.py
 !IDCPriceEnv20D_ultimate.py
 !train_ppo_ultimate.py
@@ -18,11 +18,51 @@
 !export_task_timeline_sin.py
 !experiment_cases.py
 
-# 允许上传说明文件和 gitignore 本身
+# Module package directories.
+!configs/
+!configs/*.py
+!data_io/
+!data_io/*.py
+!idc_model/
+!idc_model/*.py
+!envs/
+!envs/*.py
+!algorithms/
+!algorithms/*.py
+!algorithms/ppo/
+!algorithms/ppo/*.py
+!algorithms/baselines/
+!algorithms/baselines/*.py
+!train/
+!train/*.py
+!eval/
+!eval/*.py
+!metrics/
+!metrics/*.py
+!grid_model/
+!grid_model/*.py
+!env_wrappers/
+!env_wrappers/*.py
+!scripts/
+!scripts/*.py
+!data/
+!data/grid_node_sensitivity/
+!data/grid_node_sensitivity/.gitkeep
+!report_tools/
+!report_tools/*.py
+!legacy/
+!legacy/*.py
+!legacy/nn_reuse_experiments/
+!legacy/nn_reuse_experiments/*.py
+
+# Documentation.
 !README.md
+!docs/
+!docs/dev_reports/
+!docs/dev_reports/*.md
 !.gitignore
 
-# Generated outputs and large artifacts
+# Generated outputs and large artifacts.
 report_outputs/
 __pycache__/
 *.pyc
@@ -36,3 +76,7 @@ __pycache__/
 *.pdf
 *.log
 events.out.tfevents*
+
+# Requested static grid sensitivity outputs.
+!data/grid_node_sensitivity/ieee14_node_sensitivity_static.csv
+!data/grid_node_sensitivity/ieee14_node_sensitivity_detail.json

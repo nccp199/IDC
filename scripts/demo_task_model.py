@@ -2,7 +2,7 @@
 任务层与功耗层 demo。
 
 运行方式：
-    python demo_task_model.py
+    python -m scripts.demo_task_model
 
 作用：
     1. 检查 Task 对象、任务参数范围化、初始积压任务是否正常；
@@ -10,9 +10,29 @@
     3. 输出 24 小时功耗、成本、积压和任务完成情况。
 """
 
+import sys
+from pathlib import Path
+
 import numpy as np
 
-from task_model import IDCEnergyTaskModel
+
+def _ensure_project_root_on_path() -> Path:
+    for candidate in Path(__file__).resolve().parents:
+        if (candidate / "config_ultimate.py").exists() or (candidate / "IDCPriceEnv20D_ultimate.py").exists():
+            root = candidate
+            break
+    else:
+        raise RuntimeError("Cannot locate project root containing config_ultimate.py or IDCPriceEnv20D_ultimate.py")
+
+    root_str = str(root)
+    if root_str not in sys.path:
+        sys.path.insert(0, root_str)
+    return root
+
+
+PROJECT_ROOT = _ensure_project_root_on_path()
+
+from idc_model.task_model import IDCEnergyTaskModel
 
 
 def main():

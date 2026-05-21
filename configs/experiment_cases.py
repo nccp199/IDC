@@ -10,7 +10,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any, Dict
 
-from config_ultimate import DATA_CONFIG, ENV_CONFIG, REWARD_CONFIG
+from configs.config_ultimate import DATA_CONFIG, ENV_CONFIG, REWARD_CONFIG
 
 
 ENV_METADATA_KEYS = [

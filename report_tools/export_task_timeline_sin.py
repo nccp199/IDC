@@ -7,14 +7,15 @@
     输出目录: task_timeline_sin_seed4000
 
 运行示例：
-    python export_task_timeline_sin.py
-    python export_task_timeline_sin.py --seed 4001
-    python export_task_timeline_sin.py --model ppo_outputs_sin/best_model/best_model.zip --seed 4000 --out task_timeline_sin_seed4000
+    python -m report_tools.export_task_timeline_sin
+    python -m report_tools.export_task_timeline_sin --seed 4001
+    python -m report_tools.export_task_timeline_sin --model ppo_outputs_sin/best_model/best_model.zip --seed 4000 --out task_timeline_sin_seed4000
 """
 
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -23,9 +24,26 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from stable_baselines3 import PPO
 
-from IDCPriceEnv20D_ultimate import IDCPriceEnv20D
-from config_ultimate import DATA_CONFIG, ENV_CONFIG, REWARD_CONFIG, resolve_output_path
-from data_loader import build_external_series_from_config
+
+def _ensure_project_root_on_path() -> Path:
+    for candidate in Path(__file__).resolve().parents:
+        if (candidate / "config_ultimate.py").exists() or (candidate / "IDCPriceEnv20D_ultimate.py").exists():
+            root = candidate
+            break
+    else:
+        raise RuntimeError("Cannot locate project root containing config_ultimate.py or IDCPriceEnv20D_ultimate.py")
+
+    root_str = str(root)
+    if root_str not in sys.path:
+        sys.path.insert(0, root_str)
+    return root
+
+
+PROJECT_ROOT = _ensure_project_root_on_path()
+
+from envs.idc_price_env import IDCPriceEnv20D
+from configs.config_ultimate import DATA_CONFIG, ENV_CONFIG, REWARD_CONFIG, resolve_output_path
+from data_io.data_loader import build_external_series_from_config
 
 
 def make_env(seed: int) -> IDCPriceEnv20D:

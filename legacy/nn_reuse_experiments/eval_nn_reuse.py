@@ -12,25 +12,43 @@ eval_nn_reuse.py
 6. 同时可评估 PPO 模型在新场景上的直接推理表现。
 
 推荐运行：
-    python .\eval_nn_reuse.py
+    python -m legacy.nn_reuse_experiments.eval_nn_reuse
 
 显式指定：
-    python .\eval_nn_reuse.py --history-start 3000 --history-n 30 --eval-start 5000 --eval-n 30 --out eval_nn_reuse_5000
+    python -m legacy.nn_reuse_experiments.eval_nn_reuse --history-start 3000 --history-n 30 --eval-start 5000 --eval-n 30 --out eval_nn_reuse_5000
 
 前提：
-    ga_out/ga_plan_seed3000.npy ... ga_plan_seed3029.npy
-    pso_out/pso_plan_seed3000.npy ... pso_plan_seed3029.npy
-    ppo_outputs_mid_balance_1m/models/ppo_idc_ultimate_final.zip
+    report_outputs/ga_out/ga_plan_seed3000.npy ... ga_plan_seed3029.npy
+    report_outputs/pso_out/pso_plan_seed3000.npy ... pso_plan_seed3029.npy
+    report_outputs/ppo_outputs_mid_balance_1m/models/ppo_idc_ultimate_final.zip
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Sequence, Tuple
 
 import numpy as np
+
+
+def _ensure_project_root_on_path() -> Path:
+    for candidate in Path(__file__).resolve().parents:
+        if (candidate / "config_ultimate.py").exists() or (candidate / "IDCPriceEnv20D_ultimate.py").exists():
+            root = candidate
+            break
+    else:
+        raise RuntimeError("Cannot locate project root containing config_ultimate.py or IDCPriceEnv20D_ultimate.py")
+
+    root_str = str(root)
+    if root_str not in sys.path:
+        sys.path.insert(0, root_str)
+    return root
+
+
+PROJECT_ROOT = _ensure_project_root_on_path()
 
 from config_ultimate import DATA_CONFIG, ENV_CONFIG, REWARD_CONFIG, resolve_output_path
 from data_loader import build_external_series_from_config

@@ -2,17 +2,37 @@
 环境层随机动作连通性测试。
 
 运行方式：
-    python demo_random_env_test.py
+    python -m scripts.demo_random_env_test
 
 作用：
     1. 检查环境是否可以 reset 和 step；
-    2. 检查状态维度是否为 256、动作维度是否为 22；
+    2. 检查状态维度是否为 256、动作维度是否为 23；
     3. 用随机动作跑完 24 小时 episode，快速确认重构后环境没有断。
 """
 
-from IDCPriceEnv20D_ultimate import IDCPriceEnv20D
-from config_ultimate import DATA_CONFIG, ENV_CONFIG, REWARD_CONFIG
-from data_loader import build_external_series_from_config
+import sys
+from pathlib import Path
+
+
+def _ensure_project_root_on_path() -> Path:
+    for candidate in Path(__file__).resolve().parents:
+        if (candidate / "config_ultimate.py").exists() or (candidate / "IDCPriceEnv20D_ultimate.py").exists():
+            root = candidate
+            break
+    else:
+        raise RuntimeError("Cannot locate project root containing config_ultimate.py or IDCPriceEnv20D_ultimate.py")
+
+    root_str = str(root)
+    if root_str not in sys.path:
+        sys.path.insert(0, root_str)
+    return root
+
+
+PROJECT_ROOT = _ensure_project_root_on_path()
+
+from envs.idc_price_env import IDCPriceEnv20D
+from configs.config_ultimate import DATA_CONFIG, ENV_CONFIG, REWARD_CONFIG
+from data_io.data_loader import build_external_series_from_config
 
 
 def main():
