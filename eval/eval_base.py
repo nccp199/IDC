@@ -26,9 +26,10 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 import numpy as np
 
 from envs.idc_price_env import IDCPriceEnv20D
-from configs.config_ultimate import resolve_output_path
+from configs.config_ultimate import GRID_CONFIG, GRID_REWARD_CONFIG, resolve_output_path
 from data_io.data_loader import build_external_series_from_config
 from configs.experiment_cases import get_experiment_case, print_experiment_case
+from env_wrappers import GridCoupledEnv
 
 
 ACTIVE_CASE_CONFIG = get_experiment_case("main")
@@ -38,7 +39,7 @@ ACTIVE_CASE_CONFIG = get_experiment_case("main")
 # Shared environment config
 # =========================
 
-def make_env(seed: int) -> IDCPriceEnv20D:
+def make_env(seed: int) -> GridCoupledEnv:
     """
     Create evaluation environment from config_ultimate.py.
 
@@ -55,7 +56,8 @@ def make_env(seed: int) -> IDCPriceEnv20D:
         "server_seed": seed,
         "task_seed": seed,
     }
-    return IDCPriceEnv20D(**env_kwargs)
+    base_env = IDCPriceEnv20D(**env_kwargs)
+    return GridCoupledEnv(base_env, GRID_CONFIG, GRID_REWARD_CONFIG)
 
 
 # =========================
@@ -107,6 +109,20 @@ METRIC_KEYS = [
     "total_pause_count",
     "total_resume_count",
     "total_non_interruptible_interruption_count",
+    "grid_opf_success_rate",
+    "grid_mef_success_rate",
+    "avg_grid_lmp",
+    "avg_grid_mef_plus",
+    "avg_grid_mef_minus",
+    "avg_grid_total_generation_cost",
+    "avg_grid_total_emission_kg",
+    "avg_grid_network_loss_mw",
+    "min_grid_voltage_pu",
+    "max_grid_line_loading_percent",
+    "total_grid_security_penalty",
+    "total_safe_cost",
+    "grid_opf_fail_count",
+    "grid_mef_fail_count",
 ]
 
 SUMMARY_KEYS = [
@@ -140,6 +156,20 @@ SUMMARY_KEYS = [
     "total_bess_charge_kWh",
     "total_bess_discharge_kWh",
     "total_bess_degradation_cost",
+    "grid_opf_success_rate",
+    "grid_mef_success_rate",
+    "avg_grid_lmp",
+    "avg_grid_mef_plus",
+    "avg_grid_mef_minus",
+    "avg_grid_total_generation_cost",
+    "avg_grid_total_emission_kg",
+    "avg_grid_network_loss_mw",
+    "min_grid_voltage_pu",
+    "max_grid_line_loading_percent",
+    "total_grid_security_penalty",
+    "total_safe_cost",
+    "grid_opf_fail_count",
+    "grid_mef_fail_count",
 ]
 
 PRIMARY_PRINT_KEYS = [
@@ -158,6 +188,14 @@ PRIMARY_PRINT_KEYS = [
     "episode_grid_peak_power_kW",
     "episode_peak_power_kW",
     "total_reward",
+    "avg_grid_lmp",
+    "avg_grid_mef_plus",
+    "avg_grid_mef_minus",
+    "min_grid_voltage_pu",
+    "max_grid_line_loading_percent",
+    "total_safe_cost",
+    "grid_opf_success_rate",
+    "grid_mef_success_rate",
 ]
 
 
@@ -175,8 +213,64 @@ def safe_float(value: Any, default: float = np.nan) -> float:
         return default
 
 
-def final_metrics_from_info(total_reward: float, info: Dict[str, Any]) -> Dict[str, float]:
+def _finite_values(infos: Sequence[Dict[str, Any]], key: str) -> List[float]:
+    values = [safe_float(info.get(key)) for info in infos]
+    return [float(value) for value in values if math.isfinite(float(value))]
+
+
+def _mean_or_nan(values: Sequence[float]) -> float:
+    return float(np.mean(values)) if values else np.nan
+
+
+def aggregate_grid_episode_metrics(episode_infos: Sequence[Dict[str, Any]]) -> Dict[str, float]:
+    if not episode_infos:
+        return {
+            "grid_opf_success_rate": np.nan,
+            "grid_mef_success_rate": np.nan,
+            "avg_grid_lmp": np.nan,
+            "avg_grid_mef_plus": np.nan,
+            "avg_grid_mef_minus": np.nan,
+            "avg_grid_total_generation_cost": np.nan,
+            "avg_grid_total_emission_kg": np.nan,
+            "avg_grid_network_loss_mw": np.nan,
+            "min_grid_voltage_pu": np.nan,
+            "max_grid_line_loading_percent": np.nan,
+            "total_grid_security_penalty": np.nan,
+            "total_safe_cost": np.nan,
+            "grid_opf_fail_count": np.nan,
+            "grid_mef_fail_count": np.nan,
+        }
+
+    n_steps = len(episode_infos)
+    opf_success_count = sum(1 for info in episode_infos if bool(info.get("grid_opf_success", False)))
+    mef_success_count = sum(1 for info in episode_infos if bool(info.get("grid_mef_success", False)))
+    min_voltage_values = _finite_values(episode_infos, "grid_min_voltage_pu")
+    max_line_values = _finite_values(episode_infos, "grid_max_line_loading_percent")
+
     return {
+        "grid_opf_success_rate": opf_success_count / max(n_steps, 1),
+        "grid_mef_success_rate": mef_success_count / max(n_steps, 1),
+        "avg_grid_lmp": _mean_or_nan(_finite_values(episode_infos, "grid_lmp")),
+        "avg_grid_mef_plus": _mean_or_nan(_finite_values(episode_infos, "grid_mef_plus")),
+        "avg_grid_mef_minus": _mean_or_nan(_finite_values(episode_infos, "grid_mef_minus")),
+        "avg_grid_total_generation_cost": _mean_or_nan(_finite_values(episode_infos, "grid_total_generation_cost")),
+        "avg_grid_total_emission_kg": _mean_or_nan(_finite_values(episode_infos, "grid_total_emission_kg")),
+        "avg_grid_network_loss_mw": _mean_or_nan(_finite_values(episode_infos, "grid_network_loss_mw")),
+        "min_grid_voltage_pu": min(min_voltage_values) if min_voltage_values else np.nan,
+        "max_grid_line_loading_percent": max(max_line_values) if max_line_values else np.nan,
+        "total_grid_security_penalty": float(np.sum(_finite_values(episode_infos, "grid_security_penalty"))),
+        "total_safe_cost": float(np.sum(_finite_values(episode_infos, "safe_cost_total"))),
+        "grid_opf_fail_count": n_steps - opf_success_count,
+        "grid_mef_fail_count": n_steps - mef_success_count,
+    }
+
+
+def final_metrics_from_info(
+    total_reward: float,
+    info: Dict[str, Any],
+    episode_infos: Optional[Sequence[Dict[str, Any]]] = None,
+) -> Dict[str, float]:
+    metrics = {
         "total_reward": float(total_reward),
         "fitness": float(total_reward),
         "total_energy_kWh": safe_float(info.get("total_energy_kWh")),
@@ -225,6 +319,8 @@ def final_metrics_from_info(total_reward: float, info: Dict[str, Any]) -> Dict[s
             info.get("total_non_interruptible_interruption_count")
         ),
     }
+    metrics.update(aggregate_grid_episode_metrics(episode_infos or []))
+    return metrics
 
 
 def build_hourly_row(
@@ -340,6 +436,34 @@ def build_hourly_row(
         "r_soc_final": safe_float(info.get("r_soc_final")),
         "reward": float(reward),
         "reward_total": safe_float(info.get("reward_total", reward)),
+        "grid_enabled": bool(info.get("grid_enabled", False)),
+        "grid_opf_mode": info.get("grid_opf_mode", ""),
+        "grid_opf_success": bool(info.get("grid_opf_success", False)),
+        "grid_mef_success": bool(info.get("grid_mef_success", False)),
+        "grid_idc_ieee_bus_number": safe_float(info.get("grid_idc_ieee_bus_number")),
+        "grid_idc_bus_index": safe_float(info.get("grid_idc_bus_index")),
+        "grid_idc_load_mw": safe_float(info.get("grid_idc_load_mw")),
+        "grid_lmp": safe_float(info.get("grid_lmp")),
+        "grid_mef_plus": safe_float(info.get("grid_mef_plus")),
+        "grid_mef_minus": safe_float(info.get("grid_mef_minus")),
+        "grid_total_generation_cost": safe_float(info.get("grid_total_generation_cost")),
+        "grid_total_emission_kg": safe_float(info.get("grid_total_emission_kg")),
+        "grid_total_load_mw": safe_float(info.get("grid_total_load_mw")),
+        "grid_total_generation_mw": safe_float(info.get("grid_total_generation_mw")),
+        "grid_network_loss_mw": safe_float(info.get("grid_network_loss_mw")),
+        "grid_min_voltage_pu": safe_float(info.get("grid_min_voltage_pu")),
+        "grid_max_voltage_pu": safe_float(info.get("grid_max_voltage_pu")),
+        "grid_max_line_loading_percent": safe_float(info.get("grid_max_line_loading_percent")),
+        "grid_voltage_violation_count": safe_float(info.get("grid_voltage_violation_count")),
+        "grid_line_overload_count": safe_float(info.get("grid_line_overload_count")),
+        "grid_security_penalty": safe_float(info.get("grid_security_penalty")),
+        "safe_cost_voltage": safe_float(info.get("safe_cost_voltage")),
+        "safe_cost_line": safe_float(info.get("safe_cost_line")),
+        "safe_cost_opf": safe_float(info.get("safe_cost_opf")),
+        "safe_cost_total": safe_float(info.get("safe_cost_total")),
+        "base_reward": safe_float(info.get("base_reward")),
+        "grid_reward_penalty": safe_float(info.get("grid_reward_penalty")),
+        "grid_adjusted_reward": safe_float(info.get("grid_adjusted_reward")),
     }
 
 
@@ -486,11 +610,13 @@ def evaluate_basic_policy(
 
     total_reward = 0.0
     info: Dict[str, Any] = {}
+    episode_infos: List[Dict[str, Any]] = []
 
     for step in range(env.horizon):
         action = POLICY_FUNCS[algorithm](env, rng)
         obs, reward, terminated, truncated, info = env.step(action)
         total_reward += float(reward)
+        episode_infos.append(dict(info))
 
         if hourly_rows is not None:
             hourly_rows.append(
@@ -514,7 +640,7 @@ def evaluate_basic_policy(
         "source": "eval_policy",
         "run_idx": int(random_run),
     }
-    row.update(final_metrics_from_info(total_reward, info))
+    row.update(final_metrics_from_info(total_reward, info, episode_infos))
     return row
 
 
@@ -576,12 +702,14 @@ def evaluate_ppo(model: Any, env_seed: int, ppo_name: str = "PPO", hourly_rows=N
 
     total_reward = 0.0
     info: Dict[str, Any] = {}
+    episode_infos: List[Dict[str, Any]] = []
 
     for step in range(env.horizon):
         action, _state = model.predict(obs, deterministic=True)
         action = ensure_env_action_dim(action, env)
         obs, reward, terminated, truncated, info = env.step(action)
         total_reward += float(reward)
+        episode_infos.append(dict(info))
 
         if hourly_rows is not None:
             hourly_rows.append(
@@ -605,7 +733,7 @@ def evaluate_ppo(model: Any, env_seed: int, ppo_name: str = "PPO", hourly_rows=N
         "source": "eval_ppo",
         "run_idx": 0,
     }
-    row.update(final_metrics_from_info(total_reward, info))
+    row.update(final_metrics_from_info(total_reward, info, episode_infos))
     return row
 
 
@@ -715,6 +843,20 @@ def ordered_fieldnames(rows: List[Dict[str, Any]]) -> List[str]:
         "total_pause_count",
         "total_resume_count",
         "total_non_interruptible_interruption_count",
+        "grid_opf_success_rate",
+        "grid_mef_success_rate",
+        "avg_grid_lmp",
+        "avg_grid_mef_plus",
+        "avg_grid_mef_minus",
+        "avg_grid_total_generation_cost",
+        "avg_grid_total_emission_kg",
+        "avg_grid_network_loss_mw",
+        "min_grid_voltage_pu",
+        "max_grid_line_loading_percent",
+        "total_grid_security_penalty",
+        "total_safe_cost",
+        "grid_opf_fail_count",
+        "grid_mef_fail_count",
         "eval_count",
         "env_seed",
         "algo_seed",
@@ -834,6 +976,28 @@ def save_hourly_mean_csv(rows, out_path):
         "r_final_queue",
         "r_soc_final",
         "reward",
+        "grid_idc_load_mw",
+        "grid_lmp",
+        "grid_mef_plus",
+        "grid_mef_minus",
+        "grid_total_generation_cost",
+        "grid_total_emission_kg",
+        "grid_total_load_mw",
+        "grid_total_generation_mw",
+        "grid_network_loss_mw",
+        "grid_min_voltage_pu",
+        "grid_max_voltage_pu",
+        "grid_max_line_loading_percent",
+        "grid_voltage_violation_count",
+        "grid_line_overload_count",
+        "grid_security_penalty",
+        "safe_cost_voltage",
+        "safe_cost_line",
+        "safe_cost_opf",
+        "safe_cost_total",
+        "base_reward",
+        "grid_reward_penalty",
+        "grid_adjusted_reward",
     ]
 
     groups = sorted(set((str(r["algorithm"]), int(r["hour"])) for r in rows))
@@ -914,7 +1078,8 @@ def print_summary(summary: List[Dict[str, Any]]) -> None:
     header = (
         f"{'algorithm':<22} {'n':>4} "
         f"{'comp':>9} {'task_comp':>10} {'backlog':>12} {'miss':>9} "
-        f"{'unit_cost':>10} {'cost':>10} {'reward':>10}"
+        f"{'unit_cost':>10} {'cost':>10} {'reward':>10} "
+        f"{'grid_lmp':>10} {'mef+':>10} {'minV':>8} {'maxLine':>9} {'opf_ok':>8}"
     )
     print(header)
     print("-" * len(header))
@@ -928,7 +1093,12 @@ def print_summary(summary: List[Dict[str, Any]]) -> None:
             f"{safe_float(row.get('deadline_miss_rate_mean')):>9.4f} "
             f"{safe_float(row.get('unit_task_cost_mean')):>10.5f} "
             f"{safe_float(row.get('total_cost_mean')):>10.2f} "
-            f"{safe_float(row.get('total_reward_mean')):>10.4f}"
+            f"{safe_float(row.get('total_reward_mean')):>10.4f} "
+            f"{safe_float(row.get('avg_grid_lmp_mean')):>10.4f} "
+            f"{safe_float(row.get('avg_grid_mef_plus_mean')):>10.4f} "
+            f"{safe_float(row.get('min_grid_voltage_pu_mean')):>8.4f} "
+            f"{safe_float(row.get('max_grid_line_loading_percent_mean')):>9.4f} "
+            f"{safe_float(row.get('grid_opf_success_rate_mean')):>8.4f}"
         )
 
 

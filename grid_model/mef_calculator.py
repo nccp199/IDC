@@ -16,6 +16,7 @@ def calculate_nodal_mef(
     delta_p_mw: float = 0.1,
     load_scale: float = 1.0,
     base_idc_load_mw: float = 0.0,
+    clamp_minus_load: bool = False,
     gen_emission_factors_kg_per_mwh: dict[int, float] | None = None,
 ) -> MEFResult:
     """Calculate plus/minus nodal MEF around the base OPF dispatch."""
@@ -70,11 +71,15 @@ def calculate_nodal_mef(
     plus_emission, _ = compute_total_emission(plus_result.gen_power_mw, factors)
     delta_gen_power_plus = _subtract_power_dicts(plus_gen_power, base_gen_power)
 
+    minus_idc_load = base_idc_load - delta
+    if clamp_minus_load:
+        minus_idc_load = max(minus_idc_load, 0.0)
+
     minus_result = solve_opf(
         grid_case,
         mode=mode,
         idc_bus_id=bus_id,
-        idc_load_mw=base_idc_load - delta,
+        idc_load_mw=minus_idc_load,
         load_scale=load_scale,
     )
     if not minus_result.success:

@@ -14,11 +14,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from stable_baselines3 import PPO
-from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
-from stable_baselines3.common.monitor import Monitor
-
-from configs.config_ultimate import DEFAULT_EVAL_SEED, PPO_CONFIG, resolve_output_path
+from configs.config_ultimate import (
+    DEFAULT_EVAL_SEED,
+    GRID_CONFIG,
+    GRID_REWARD_CONFIG,
+    PPO_CONFIG,
+    resolve_output_path,
+)
 from data_io.data_loader import build_external_series_from_config
 from configs.experiment_cases import (
     get_experiment_case,
@@ -27,6 +29,7 @@ from configs.experiment_cases import (
     print_experiment_case,
 )
 from envs.idc_price_env import IDCPriceEnv20D
+from env_wrappers import GridCoupledEnv
 
 
 def make_env(
@@ -34,8 +37,10 @@ def make_env(
     reward_config: Dict[str, Any],
     data_config: Dict[str, Any],
     seed: Optional[int] = None,
-) -> Monitor:
+) -> Any:
     """Create a monitored PPO environment from copied case configs."""
+    from stable_baselines3.common.monitor import Monitor
+
     env_kwargs = {
         **env_config,
         **reward_config,
@@ -43,8 +48,26 @@ def make_env(
         "server_seed": seed,
         "task_seed": seed,
     }
-    env = IDCPriceEnv20D(**env_kwargs)
+    base_env = IDCPriceEnv20D(**env_kwargs)
+    env = GridCoupledEnv(base_env, GRID_CONFIG, GRID_REWARD_CONFIG)
     return Monitor(env)
+
+
+def make_unmonitored_env(
+    env_config: Dict[str, Any],
+    reward_config: Dict[str, Any],
+    data_config: Dict[str, Any],
+    seed: Optional[int] = None,
+) -> GridCoupledEnv:
+    env_kwargs = {
+        **env_config,
+        **reward_config,
+        **build_external_series_from_config(data_config, env_config["horizon"]),
+        "server_seed": seed,
+        "task_seed": seed,
+    }
+    base_env = IDCPriceEnv20D(**env_kwargs)
+    return GridCoupledEnv(base_env, GRID_CONFIG, GRID_REWARD_CONFIG)
 
 
 def sanity_check_env(
@@ -52,29 +75,36 @@ def sanity_check_env(
     reward_config: Dict[str, Any],
     data_config: Dict[str, Any],
 ) -> tuple[int, int]:
-    """Check that the PPO observation/action interface is still unchanged."""
-    env_kwargs = {
-        **env_config,
-        **reward_config,
-        **build_external_series_from_config(data_config, env_config["horizon"]),
-        "server_seed": DEFAULT_EVAL_SEED,
-        "task_seed": DEFAULT_EVAL_SEED,
-    }
-    env = IDCPriceEnv20D(**env_kwargs)
+    """Check the current PPO observation/action interface."""
+    env = make_unmonitored_env(env_config, reward_config, data_config, seed=DEFAULT_EVAL_SEED)
     obs, info = env.reset()
+    expected_obs_dim = int(env.observation_space.shape[0])
 
     print(">>> PPO environment sanity check")
     print(f"    obs.shape = {obs.shape}")
+    print(f"    env.observation_space.shape = {env.observation_space.shape}")
     print(f"    action_space.shape = {env.action_space.shape}")
+    print(f"    base_obs_dim = {env.base_obs_dim}")
+    print(f"    grid_obs_dim = {env.grid_obs_dim}")
+    print(f"    enable_grid_obs = {env.enable_grid_obs}")
     print(f"    obs_dim(info) = {info.get('obs_dim')}")
     print(f"    total_task_count = {info.get('total_task_count')}")
 
-    if obs.shape != (256,):
-        raise RuntimeError(f"Expected obs.shape=(256,), got {obs.shape}")
+    if int(obs.shape[0]) != expected_obs_dim:
+        raise RuntimeError(f"Expected obs_dim={expected_obs_dim}, got obs.shape={obs.shape}")
     if env.action_space.shape != (23,):
         raise RuntimeError(f"Expected action_space.shape=(23,), got {env.action_space.shape}")
 
     return int(obs.shape[0]), int(env.action_space.shape[0])
+
+
+def infer_env_shape(
+    env_config: Dict[str, Any],
+    reward_config: Dict[str, Any],
+    data_config: Dict[str, Any],
+) -> tuple[int, int]:
+    env = make_unmonitored_env(env_config, reward_config, data_config, seed=DEFAULT_EVAL_SEED)
+    return int(env.observation_space.shape[0]), int(env.action_space.shape[0])
 
 
 def save_training_metadata(
@@ -122,7 +152,7 @@ def main() -> None:
     data_config = case_config["data_config"]
 
     if args.no_sanity_check:
-        obs_dim, action_dim = 256, 23
+        obs_dim, action_dim = infer_env_shape(env_config, reward_config, data_config)
     else:
         obs_dim, action_dim = sanity_check_env(env_config, reward_config, data_config)
 
@@ -134,6 +164,12 @@ def main() -> None:
     model_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(parents=True, exist_ok=True)
     best_model_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        from stable_baselines3 import PPO
+        from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
+    except Exception as exc:
+        raise SystemExit(f"stable_baselines3 is required for PPO training: {exc}") from exc
 
     train_env = make_env(env_config, reward_config, data_config, seed=None)
     eval_env = make_env(env_config, reward_config, data_config, seed=DEFAULT_EVAL_SEED)

@@ -96,6 +96,35 @@ REWARD_CONFIG = {
     "reward_grid_peak_weight": 1.0,
 }
 
+GRID_CONFIG = {
+    "enable_grid_coupling": True,
+    "case_name": "ieee14",
+    "idc_ieee_bus_number": 9,
+    "opf_mode": "ac",
+    "delta_p_mw": 0.1,
+    "load_scale": 1.0,
+    "enable_grid_reward": False,
+    "use_mef": True,
+    "enable_grid_obs": True,
+    "grid_obs_dim": 8,
+    "grid_lmp_ref": 100.0,
+    "grid_mef_ref": 1000.0,
+    "grid_voltage_ref": 0.10,
+    "grid_line_loading_ref": 100.0,
+    "grid_network_loss_ref": 20.0,
+    "grid_security_penalty_ref": 10.0,
+}
+
+GRID_REWARD_CONFIG = {
+    "grid_lmp_cost_weight": 0.0,
+    "grid_mef_carbon_weight": 0.0,
+    "grid_security_weight": 0.0,
+    "opf_failure_penalty": 5.0,
+    "lmp_cost_ref": 100.0,
+    "mef_carbon_ref": 100.0,
+    "security_penalty_ref": 10.0,
+}
+
 PPO_CONFIG = {
     "learning_rate": 3e-4,
     "n_steps": 768,
