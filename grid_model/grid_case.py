@@ -31,7 +31,10 @@ class OPFResult:
     lmp_by_bus: dict[int, float] = field(default_factory=dict)
     gen_power_mw: dict[int, float] = field(default_factory=dict)
     bus_voltage_pu: dict[int, float] = field(default_factory=dict)
+    bus_voltage_min_pu: dict[int, float] = field(default_factory=dict)
+    bus_voltage_max_pu: dict[int, float] = field(default_factory=dict)
     line_loading_percent: dict[int, float] = field(default_factory=dict)
+    line_loading_limit_percent: dict[int, float] = field(default_factory=dict)
     total_load_mw: float = math.nan
     total_generation_mw: float = math.nan
     network_loss_mw: float = math.nan
@@ -71,5 +74,7 @@ class GridMetricResult:
     max_line_loading_percent: float = math.nan
     voltage_violation_count: int = 0
     line_overload_count: int = 0
+    voltage_violation_magnitude: float = 0.0
+    line_overload_magnitude: float = 0.0
     opf_infeasible_flag: bool = False
     grid_security_penalty: float = 0.0

@@ -199,7 +199,10 @@ def _extract_opf_result(net: Any, mode: str, success: bool, message: str) -> OPF
         lmp_by_bus=_extract_bus_column(net, "res_bus", "lam_p"),
         gen_power_mw=gen_power,
         bus_voltage_pu=_extract_bus_column(net, "res_bus", "vm_pu"),
+        bus_voltage_min_pu=_extract_bus_limit_column(net, "min_vm_pu", default=0.95),
+        bus_voltage_max_pu=_extract_bus_limit_column(net, "max_vm_pu", default=1.05),
         line_loading_percent=_extract_line_loading_percent(net),
+        line_loading_limit_percent=_extract_line_loading_limit_percent(net, default=100.0),
         total_load_mw=total_load,
         total_generation_mw=total_generation,
         network_loss_mw=network_loss,
@@ -254,6 +257,34 @@ def _extract_line_loading_percent(net: Any) -> dict[int, float]:
     if not _has_column(table, "loading_percent"):
         return {}
     return {int(idx): _to_float(value) for idx, value in table["loading_percent"].items()}
+
+
+def _extract_bus_limit_column(net: Any, column: str, default: float) -> dict[int, float]:
+    table = getattr(net, "bus", None)
+    if table is None or not hasattr(table, "index"):
+        return {}
+
+    values: dict[int, float] = {}
+    has_limit_column = _has_column(table, column)
+    for idx in table.index.tolist():
+        value = table.at[idx, column] if has_limit_column else default
+        number = _to_float(value)
+        values[int(idx)] = number if math.isfinite(number) else float(default)
+    return values
+
+
+def _extract_line_loading_limit_percent(net: Any, default: float) -> dict[int, float]:
+    table = getattr(net, "line", None)
+    if table is None or not hasattr(table, "index"):
+        return {}
+
+    values: dict[int, float] = {}
+    has_limit_column = _has_column(table, "max_loading_percent")
+    for idx in table.index.tolist():
+        value = table.at[idx, "max_loading_percent"] if has_limit_column else default
+        number = _to_float(value)
+        values[int(idx)] = number if math.isfinite(number) else float(default)
+    return values
 
 
 def _has_column(table: Any, column: str) -> bool:

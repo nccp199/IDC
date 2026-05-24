@@ -56,6 +56,15 @@ ENV_CONFIG = {
     "planned_load_reserve_alpha": 0.40,
 }
 
+IDC_SCALE_CONFIG = {
+    "enable_server_group_model": True,
+    "server_group_size": 100,
+    "num_server_groups": 20,
+    "task_workload_scale": 100,
+    "bess_scale_factor": 100,
+    "scale_bess_with_idc": True,
+}
+
 DATA_CONFIG = {
     "price_csv_path": None,
     "price_column": None,
@@ -116,13 +125,24 @@ GRID_CONFIG = {
 }
 
 GRID_REWARD_CONFIG = {
+    "enable_grid_reward": False,
+    "grid_reward_mode": "none",
     "grid_lmp_cost_weight": 0.0,
     "grid_mef_carbon_weight": 0.0,
-    "grid_security_weight": 0.0,
-    "opf_failure_penalty": 5.0,
+    "grid_safe_violation_weight": 0.0,
     "lmp_cost_ref": 100.0,
     "mef_carbon_ref": 100.0,
-    "security_penalty_ref": 10.0,
+    "safe_violation_ref": 1.0,
+    "clip_grid_reward_penalty": True,
+    "grid_reward_penalty_clip": 10.0,
+}
+
+GRID_SCENARIO_CONFIG = {
+    "enable_dynamic_grid_load": True,
+    "grid_load_scale_path": "data/grid_scenarios/nems_singapore/processed/nems_24h_load_scale.csv",
+    "grid_load_scale_column": "grid_load_scale",
+    "grid_usep_column": "usep_sgd_per_mwh",
+    "fallback_load_scale": 1.0,
 }
 
 PPO_CONFIG = {

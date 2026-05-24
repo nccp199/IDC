@@ -89,47 +89,66 @@ class IDCPriceEnv20D(gym.Env):
         wt_t=None,
         server_seed=None,
         task_seed=None,
+        enable_server_group_model: bool = False,
+        server_group_size: int = 1,
+        num_server_groups: int = 20,
+        task_workload_scale: float = 1.0,
+        bess_scale_factor: float = 1.0,
+        scale_bess_with_idc: bool = False,
     ):
         super().__init__()
 
         # 1. 底层物理模型：建议使用最新 servercapacity 版本
         self.model = IDCEnergyTaskModel(
-            N=20,
+            N=int(num_server_groups),
             server_seed=server_seed,
             task_seed=task_seed,
+            enable_server_group_model=enable_server_group_model,
+            server_group_size=server_group_size,
+            num_server_groups=num_server_groups,
+            task_workload_scale=task_workload_scale,
         )
 
         # 2. 仿真参数
         self.horizon = int(horizon)
         self.base_load = float(base_load)
         self.max_task_load_per_server = float(max_task_load_per_server)
-        self.initial_Q = float(Q0)
+        self.server_group_model_enabled = bool(enable_server_group_model)
+        self.server_group_size = max(int(server_group_size), 1) if self.server_group_model_enabled else 1
+        self.num_server_groups = int(num_server_groups)
+        self.effective_total_server_count = self.num_server_groups * self.server_group_size
+        self.task_workload_scale = max(float(task_workload_scale), 0.0)
+        self.idc_power_scale_factor = float(self.server_group_size if self.server_group_model_enabled else 1)
+        self.bess_scale_factor = max(float(bess_scale_factor), 0.0)
+        self.scale_bess_with_idc = bool(scale_bess_with_idc)
+        self.initial_Q = float(Q0) * max(self.task_workload_scale, 1e-9)
         self.num_tasks = int(num_tasks)
 
         # 3. 归一化参考值
         self.price_ref = float(price_ref)
-        self.lambda_ref = float(lambda_ref)
-        self.queue_ref = float(queue_ref)
+        self.lambda_ref = float(lambda_ref) * max(self.task_workload_scale, 1e-9)
+        self.queue_ref = float(queue_ref) * max(self.task_workload_scale, 1e-9)
         # queue_capacity_ref is the soft backlog capacity; Q above this is penalized, not terminated.
-        self.queue_capacity_ref = float(queue_capacity_ref)
-        self.cost_ref = float(cost_ref)
-        self.carbon_ref = float(carbon_ref)
+        self.queue_capacity_ref = float(queue_capacity_ref) * max(self.task_workload_scale, 1e-9)
+        self.cost_ref = float(cost_ref) * max(self.idc_power_scale_factor, 1e-9)
+        self.carbon_ref = float(carbon_ref) * max(self.idc_power_scale_factor, 1e-9)
         # carbon_price converts grid-purchased carbon emissions into a reporting-only carbon_cost.
         self.carbon_price = float(carbon_price)
         # delta_t_hours is the step length used to convert kW power into kWh energy.
         self.delta_t_hours = float(delta_t_hours)
-        self.peak_power_threshold_kW = float(peak_power_threshold_kW)
-        self.peak_power_ref_kW = float(peak_power_ref_kW)
-        self.grid_power_limit_kW = float(grid_power_limit_kW)
-        self.sla_ref = float(sla_ref)
-        self.bess_capacity_kWh = float(bess_capacity_kWh)
+        self.peak_power_threshold_kW = float(peak_power_threshold_kW) * max(self.idc_power_scale_factor, 1e-9)
+        self.peak_power_ref_kW = float(peak_power_ref_kW) * max(self.idc_power_scale_factor, 1e-9)
+        self.grid_power_limit_kW = float(grid_power_limit_kW) * max(self.idc_power_scale_factor, 1e-9)
+        self.sla_ref = float(sla_ref) * max(self.task_workload_scale, 1e-9)
+        bess_effective_scale = self.bess_scale_factor if self.scale_bess_with_idc else 1.0
+        self.bess_capacity_kWh = float(bess_capacity_kWh) * bess_effective_scale
         self.bess_soc_init = float(bess_soc_init)
         self.bess_soc_min = float(bess_soc_min)
         self.bess_soc_max = float(bess_soc_max)
         self.bess_soc_target = float(bess_soc_target)
         self.bess_soc_final_tolerance = float(bess_soc_final_tolerance)
-        self.bess_charge_power_max_kW = float(bess_charge_power_max_kW)
-        self.bess_discharge_power_max_kW = float(bess_discharge_power_max_kW)
+        self.bess_charge_power_max_kW = float(bess_charge_power_max_kW) * bess_effective_scale
+        self.bess_discharge_power_max_kW = float(bess_discharge_power_max_kW) * bess_effective_scale
         self.bess_charge_efficiency = float(bess_charge_efficiency)
         self.bess_discharge_efficiency = float(bess_discharge_efficiency)
         self.bess_degradation_cost_per_kWh = float(bess_degradation_cost_per_kWh)
@@ -301,6 +320,36 @@ class IDCPriceEnv20D(gym.Env):
 
         return carbon_factor_t
 
+    def _server_group_info(self) -> dict:
+        return {
+            "server_group_model_enabled": bool(self.server_group_model_enabled),
+            "server_group_size": int(self.server_group_size),
+            "num_server_groups": int(self.num_server_groups),
+            "effective_total_server_count": int(self.effective_total_server_count),
+            "total_group_capacity": float(getattr(self.model, "total_group_capacity", self.model.C_IDC)),
+            "total_group_idle_power_kW": float(getattr(self.model, "total_group_idle_power_kW", np.sum(self.model.P_idle) / 1000.0)),
+            "total_group_max_power_kW": float(getattr(self.model, "total_group_max_power_kW", np.sum(self.model.P_max) / 1000.0)),
+        }
+
+    def _task_scale_info(self) -> dict:
+        total_workload = self._total_available_work() if self.tasks else 0.0
+        task_count = len(self.tasks) if self.tasks else 0
+        return {
+            "task_workload_scale": float(self.task_workload_scale),
+            "effective_total_workload": float(total_workload),
+            "average_task_workload": float(total_workload / task_count) if task_count > 0 else 0.0,
+        }
+
+    def _bess_static_info(self) -> dict:
+        return {
+            "bess_capacity_kWh": float(self.bess_capacity_kWh),
+            "bess_charge_power_max_kW": float(self.bess_charge_power_max_kW),
+            "bess_discharge_power_max_kW": float(self.bess_discharge_power_max_kW),
+            "bess_charge_efficiency": float(self.bess_charge_efficiency),
+            "bess_discharge_efficiency": float(self.bess_discharge_efficiency),
+            "bess_scale_factor": float(self.bess_scale_factor),
+        }
+
     def reset(self, seed=None, options=None):
         """重置环境，开始新的 24 小时 episode。"""
         super().reset(seed=seed)
@@ -356,6 +405,9 @@ class IDCPriceEnv20D(gym.Env):
             "total_task_count": len(self.tasks),
             "initial_backlog_work": self.Q_t,
             "obs_dim": self.obs_dim,
+            **self._server_group_info(),
+            **self._task_scale_info(),
+            **self._bess_static_info(),
         }
 
         return obs, info
@@ -503,6 +555,12 @@ class IDCPriceEnv20D(gym.Env):
 
         bess_throughput_kWh = bess_charge_kWh + bess_discharge_kWh
         bess_degradation_cost = bess_throughput_kWh * self.bess_degradation_cost_per_kWh
+        if bess_charge_power_kW > 1e-9:
+            bess_mode = "charge"
+        elif bess_discharge_power_kW > 1e-9:
+            bess_mode = "discharge"
+        else:
+            bess_mode = "idle"
         invalid_bess_action = (
             abs(desired_bess_charge_power_kW - bess_charge_power_kW)
             + abs(desired_bess_discharge_power_kW - bess_discharge_power_kW)
@@ -771,15 +829,22 @@ class IDCPriceEnv20D(gym.Env):
             "P_grid_kW": float(P_grid_kW),
             "grid_power_kW": float(grid_power_kW),
             "grid_power_limit_kW": float(self.grid_power_limit_kW),
+            **self._server_group_info(),
+            **self._task_scale_info(),
             "bess_soc": float(self.bess_soc),
             "bess_energy_kWh": float(self.bess_energy_kWh),
+            "bess_mode": bess_mode,
             "desired_bess_charge_power_kW": float(desired_bess_charge_power_kW),
             "desired_bess_discharge_power_kW": float(desired_bess_discharge_power_kW),
             "bess_charge_power_kW": float(bess_charge_power_kW),
             "bess_discharge_power_kW": float(bess_discharge_power_kW),
+            "bess_available_charge_kWh": float(max_charge_energy_by_soc),
+            "bess_available_discharge_kWh": float(max_discharge_energy_by_soc),
             "bess_charge_kWh": float(bess_charge_kWh),
             "bess_discharge_kWh": float(bess_discharge_kWh),
+            "bess_cycle_throughput_kWh": float(bess_throughput_kWh),
             "bess_degradation_cost": float(bess_degradation_cost),
+            **self._bess_static_info(),
             "invalid_bess_action": float(invalid_bess_action),
             "soc_deviation": float(soc_deviation),
             "soc_excess": float(soc_excess),

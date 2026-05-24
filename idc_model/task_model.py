@@ -31,7 +31,12 @@ class IDCEnergyTaskModel(IDCPowerModel):
         server_capacity_variation=0.25,
         server_seed=None,
         task_seed=None,
+        enable_server_group_model=False,
+        server_group_size=1,
+        num_server_groups=None,
+        task_workload_scale=1.0,
     ):
+        self.task_workload_scale = max(float(task_workload_scale), 0.0)
         super().__init__(
             N=N,
             P_idle_base=P_idle_base,
@@ -47,10 +52,18 @@ class IDCEnergyTaskModel(IDCPowerModel):
             server_capacity_variation=server_capacity_variation,
             server_seed=server_seed,
             task_seed=task_seed,
+            enable_server_group_model=enable_server_group_model,
+            server_group_size=server_group_size,
+            num_server_groups=num_server_groups,
         )
 
         # 初始化任务 Profile。具体任务实例会在 create_task() 中从范围内采样。
         self.task_profiles = self._init_task_profiles()
+
+    def _task_workload_capacity_ref(self) -> float:
+            """Return the workload reference after IDC scenario scaling."""
+            base_capacity = float(getattr(self, "C_IDC_base", self.C_IDC))
+            return base_capacity * max(float(getattr(self, "task_workload_scale", 1.0)), 0.0)
 
     def _init_task_profiles(self) -> dict:
             """
@@ -119,10 +132,11 @@ class IDCEnergyTaskModel(IDCPowerModel):
                 profile["load_profile"] = np.full(representative_duration, representative_load, dtype=np.float64)
                 profile["deadline"] = int(round((dl_min + dl_max) / 2))
                 profile["priority"] = float((p_min + p_max) / 2)
-                profile["workload"] = float(np.sum(profile["load_profile"]) * self.C_IDC)
+                workload_capacity_ref = self._task_workload_capacity_ref()
+                profile["workload"] = float(np.sum(profile["load_profile"]) * workload_capacity_ref)
                 profile["workload_range"] = (
-                    float(d_min * l_min * self.C_IDC),
-                    float(d_max * l_max * self.C_IDC),
+                    float(d_min * l_min * workload_capacity_ref),
+                    float(d_max * l_max * workload_capacity_ref),
                 )
 
             return profiles
@@ -146,7 +160,7 @@ class IDCEnergyTaskModel(IDCPowerModel):
 
             duration = int(self.task_rng.integers(duration_min, duration_max + 1))
             load_profile = self.task_rng.uniform(load_min, load_max, size=duration)
-            workload = float(np.sum(load_profile) * self.C_IDC)
+            workload = float(np.sum(load_profile) * self._task_workload_capacity_ref())
 
             # deadline 是相对 arrival_time 的允许最大延迟。
             # 为避免生成明显不合理任务，deadline 下限至少不小于 duration。

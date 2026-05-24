@@ -24,7 +24,10 @@ class IDCPowerModel:
                      C_IDC=500.0,
                      server_capacity_variation=0.25,
                      server_seed=None,
-                     task_seed=None):
+                     task_seed=None,
+                     enable_server_group_model=False,
+                     server_group_size=1,
+                     num_server_groups=None):
             """
             初始化 N 台具有不同物理特性的服务器。
 
@@ -36,7 +39,17 @@ class IDCPowerModel:
             C_IDC 在新版中只作为“目标总算力尺度”，用于确定单台服务器平均算力基准，
             实际 self.C_IDC 由 sum(self.C_server) 得到。
             """
+            if num_server_groups is not None:
+                N = int(num_server_groups)
             self.N = int(N)
+            self.server_group_model_enabled = bool(enable_server_group_model)
+            self.server_group_size = (
+                max(int(server_group_size), 1)
+                if self.server_group_model_enabled
+                else 1
+            )
+            self.num_server_groups = self.N
+            self.effective_total_server_count = self.N * self.server_group_size
 
             # 1. 随机数生成器
             # 默认不固定种子，每次运行会生成不同的服务器和任务；
@@ -47,8 +60,12 @@ class IDCPowerModel:
             self.task_rng = np.random.default_rng(task_seed)
 
             # 2. 异构服务器功耗参数初始化
-            self.P_idle = self.server_rng.uniform(P_idle_base * 0.8, P_idle_base * 1.2, self.N)
-            self.P_max = self.server_rng.uniform(P_max_base * 0.8, P_max_base * 1.2, self.N)
+            self.single_server_P_idle = self.server_rng.uniform(P_idle_base * 0.8, P_idle_base * 1.2, self.N)
+            self.single_server_P_max = self.server_rng.uniform(P_max_base * 0.8, P_max_base * 1.2, self.N)
+            self.P_idle = self.single_server_P_idle * self.server_group_size
+            self.P_max = self.single_server_P_max * self.server_group_size
+            self.delta_P_loss = delta_P_loss
+            self.alpha, self.beta, self.gamma = alpha, beta, gamma
 
             self.k = k  # 非线性功耗系数
             self.delta_P_loss = delta_P_loss  # 配电损耗
@@ -59,6 +76,8 @@ class IDCPowerModel:
             # 3. 每台服务器算力容量：先生成单台服务器算力，再求和得到总算力
             self.C_IDC_target = float(C_IDC)  # 目标总算力尺度，不再直接作为最终总算力
             self.server_capacity_variation = float(server_capacity_variation)
+            self.C_IDC_target = float(C_IDC)
+            self.server_capacity_variation = float(server_capacity_variation)
             C_server_base = self.C_IDC_target / self.N
 
             capacity_factor = self.server_rng.uniform(
@@ -66,11 +85,17 @@ class IDCPowerModel:
                 1.0 + self.server_capacity_variation,
                 self.N
             )
-            self.C_server = C_server_base * capacity_factor
+            self.single_server_C_server = C_server_base * capacity_factor
+            self.single_server_C_server = np.maximum(self.single_server_C_server, 1e-6)
+            self.C_IDC_base = float(np.sum(self.single_server_C_server))
+            self.C_server = self.single_server_C_server * self.server_group_size
             self.C_server = np.maximum(self.C_server, 1e-6)
 
             # 实际 IDC 总算力由各服务器算力相加得到
             self.C_IDC = float(np.sum(self.C_server))
+            self.total_group_capacity = self.C_IDC
+            self.total_group_idle_power_kW = float(np.sum(self.P_idle) / 1000.0)
+            self.total_group_max_power_kW = float(np.sum(self.P_max) / 1000.0)
 
             # 每台服务器的单位功耗算力，用于后续状态空间/调度策略扩展
             self.server_compute_efficiency = self.C_server / self.P_max

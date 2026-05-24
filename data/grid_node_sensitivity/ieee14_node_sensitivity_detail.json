@@ -294,10 +294,10 @@
           "min_voltage_pu": 1.0157160407977741,
           "max_voltage_pu": 1.0845463140877365,
           "max_line_loading_percent": 1.2301478644295774,
-          "voltage_violation_count": 9,
+          "voltage_violation_count": 0,
           "line_overload_count": 0,
           "opf_infeasible_flag": false,
-          "grid_security_penalty": 9.0
+          "grid_security_penalty": 0.0
         },
         "generator_emission_table": [
           {
@@ -624,10 +624,10 @@
           "min_voltage_pu": 1.015643005190069,
           "max_voltage_pu": 1.0845982541378787,
           "max_line_loading_percent": 1.2376259637607068,
-          "voltage_violation_count": 9,
+          "voltage_violation_count": 0,
           "line_overload_count": 0,
           "opf_infeasible_flag": false,
-          "grid_security_penalty": 9.0
+          "grid_security_penalty": 0.0
         },
         "generator_emission_table": [
           {
@@ -954,10 +954,10 @@
           "min_voltage_pu": 1.015498304416187,
           "max_voltage_pu": 1.0846658345128684,
           "max_line_loading_percent": 1.2358675383226505,
-          "voltage_violation_count": 9,
+          "voltage_violation_count": 0,
           "line_overload_count": 0,
           "opf_infeasible_flag": false,
-          "grid_security_penalty": 9.0
+          "grid_security_penalty": 0.0
         },
         "generator_emission_table": [
           {
@@ -1284,10 +1284,10 @@
           "min_voltage_pu": 1.0156219829625428,
           "max_voltage_pu": 1.0846972828213397,
           "max_line_loading_percent": 1.2356494404089975,
-          "voltage_violation_count": 9,
+          "voltage_violation_count": 0,
           "line_overload_count": 0,
           "opf_infeasible_flag": false,
-          "grid_security_penalty": 9.0
+          "grid_security_penalty": 0.0
         },
         "generator_emission_table": [
           {
@@ -1614,10 +1614,10 @@
           "min_voltage_pu": 1.0156480905869256,
           "max_voltage_pu": 1.0846459838230031,
           "max_line_loading_percent": 1.2352711744337102,
-          "voltage_violation_count": 8,
+          "voltage_violation_count": 0,
           "line_overload_count": 0,
           "opf_infeasible_flag": false,
-          "grid_security_penalty": 8.0
+          "grid_security_penalty": 0.0
         },
         "generator_emission_table": [
           {
@@ -1944,10 +1944,10 @@
           "min_voltage_pu": 1.0156529985318927,
           "max_voltage_pu": 1.0846254177334138,
           "max_line_loading_percent": 1.235537984134015,
-          "voltage_violation_count": 8,
+          "voltage_violation_count": 0,
           "line_overload_count": 0,
           "opf_infeasible_flag": false,
-          "grid_security_penalty": 8.0
+          "grid_security_penalty": 0.0
         },
         "generator_emission_table": [
           {
@@ -2274,10 +2274,10 @@
           "min_voltage_pu": 1.0156153792711067,
           "max_voltage_pu": 1.0847889111239792,
           "max_line_loading_percent": 1.235520191888003,
-          "voltage_violation_count": 9,
+          "voltage_violation_count": 0,
           "line_overload_count": 0,
           "opf_infeasible_flag": false,
-          "grid_security_penalty": 9.0
+          "grid_security_penalty": 0.0
         },
         "generator_emission_table": [
           {
@@ -2604,10 +2604,10 @@
           "min_voltage_pu": 1.0156153632173524,
           "max_voltage_pu": 1.0847680335238212,
           "max_line_loading_percent": 1.2355202717575005,
-          "voltage_violation_count": 9,
+          "voltage_violation_count": 0,
           "line_overload_count": 0,
           "opf_infeasible_flag": false,
-          "grid_security_penalty": 9.0
+          "grid_security_penalty": 0.0
         },
         "generator_emission_table": [
           {
@@ -2934,10 +2934,10 @@
           "min_voltage_pu": 1.0156135408509674,
           "max_voltage_pu": 1.0848839554121863,
           "max_line_loading_percent": 1.235452031292907,
-          "voltage_violation_count": 9,
+          "voltage_violation_count": 0,
           "line_overload_count": 0,
           "opf_infeasible_flag": false,
-          "grid_security_penalty": 9.0
+          "grid_security_penalty": 0.0
         },
         "generator_emission_table": [
           {
@@ -3264,10 +3264,10 @@
           "min_voltage_pu": 1.015620352516202,
           "max_voltage_pu": 1.0848520754171285,
           "max_line_loading_percent": 1.235457580299632,
-          "voltage_violation_count": 9,
+          "voltage_violation_count": 0,
           "line_overload_count": 0,
           "opf_infeasible_flag": false,
-          "grid_security_penalty": 9.0
+          "grid_security_penalty": 0.0
         },
         "generator_emission_table": [
           {
@@ -3594,10 +3594,10 @@
           "min_voltage_pu": 1.0156361930455295,
           "max_voltage_pu": 1.0847380483969509,
           "max_line_loading_percent": 1.2354875339971028,
-          "voltage_violation_count": 9,
+          "voltage_violation_count": 0,
           "line_overload_count": 0,
           "opf_infeasible_flag": false,
-          "grid_security_penalty": 9.0
+          "grid_security_penalty": 0.0
         },
         "generator_emission_table": [
           {
@@ -3924,10 +3924,10 @@
           "min_voltage_pu": 1.01565438730159,
           "max_voltage_pu": 1.084600436586351,
           "max_line_loading_percent": 1.235536416423366,
-          "voltage_violation_count": 8,
+          "voltage_violation_count": 0,
           "line_overload_count": 0,
           "opf_infeasible_flag": false,
-          "grid_security_penalty": 8.0
+          "grid_security_penalty": 0.0
         },
         "generator_emission_table": [
           {
@@ -4254,10 +4254,10 @@
           "min_voltage_pu": 1.0156501994294695,
           "max_voltage_pu": 1.0846334909704916,
           "max_line_loading_percent": 1.235513160293204,
-          "voltage_violation_count": 8,
+          "voltage_violation_count": 0,
           "line_overload_count": 0,
           "opf_infeasible_flag": false,
-          "grid_security_penalty": 8.0
+          "grid_security_penalty": 0.0
         },
         "generator_emission_table": [
           {
@@ -4584,10 +4584,10 @@
           "min_voltage_pu": 1.0156323319087175,
           "max_voltage_pu": 1.084794340754421,
           "max_line_loading_percent": 1.2354726565272975,
-          "voltage_violation_count": 8,
+          "voltage_violation_count": 0,
           "line_overload_count": 0,
           "opf_infeasible_flag": false,
-          "grid_security_penalty": 8.0
+          "grid_security_penalty": 0.0
         },
         "generator_emission_table": [
           {

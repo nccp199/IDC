@@ -11,3 +11,5 @@
 | `GRID_COUPLED_ENV_REPORT.md` | IDC 环境与 IEEE14 OPF/MEF 电网反馈 wrapper 接入记录 | GridCoupledEnv |
 | `GRID_OBS_EVAL_UPDATE_REPORT.md` | GridCoupledEnv 观测扩展与 eval grid 指标接入记录 | Grid Obs + Eval |
 | `REPORTS_REORG_REPORT.md` | 根目录 Markdown 开发报告迁移整理记录 | 目录整理 |
+| `IDC_CLUSTER_AND_NEMS_SCENARIO_REPORT.md` | 20x100 IDC server group 缩放、BESS 缩放与 NEMS grid load scale 场景接入记录 | IDC Cluster + NEMS |
+| `NEMS_MULTIDAY_SCENARIO_UPDATE_REPORT.md` | USEP_May-2026 多日 NEMS 半小时数据适配、代表日选择与 all-days 场景导出记录 | NEMS 多日场景 |

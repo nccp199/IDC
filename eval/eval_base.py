@@ -26,7 +26,13 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 import numpy as np
 
 from envs.idc_price_env import IDCPriceEnv20D
-from configs.config_ultimate import GRID_CONFIG, GRID_REWARD_CONFIG, resolve_output_path
+from configs.config_ultimate import (
+    GRID_CONFIG,
+    GRID_REWARD_CONFIG,
+    GRID_SCENARIO_CONFIG,
+    IDC_SCALE_CONFIG,
+    resolve_output_path,
+)
 from data_io.data_loader import build_external_series_from_config
 from configs.experiment_cases import get_experiment_case, print_experiment_case
 from env_wrappers import GridCoupledEnv
@@ -52,12 +58,13 @@ def make_env(seed: int) -> GridCoupledEnv:
     env_kwargs = {
         **env_config,
         **reward_config,
+        **IDC_SCALE_CONFIG,
         **build_external_series_from_config(data_config, env_config["horizon"]),
         "server_seed": seed,
         "task_seed": seed,
     }
     base_env = IDCPriceEnv20D(**env_kwargs)
-    return GridCoupledEnv(base_env, GRID_CONFIG, GRID_REWARD_CONFIG)
+    return GridCoupledEnv(base_env, GRID_CONFIG, GRID_REWARD_CONFIG, GRID_SCENARIO_CONFIG)
 
 
 # =========================
@@ -117,10 +124,24 @@ METRIC_KEYS = [
     "avg_grid_total_generation_cost",
     "avg_grid_total_emission_kg",
     "avg_grid_network_loss_mw",
+    "avg_grid_load_scale",
+    "avg_grid_reference_usep",
     "min_grid_voltage_pu",
     "max_grid_line_loading_percent",
     "total_grid_security_penalty",
+    "total_safe_violation_cost",
+    "total_safe_violation_voltage",
+    "total_safe_violation_line",
+    "total_safe_violation_opf",
+    "avg_safe_violation_cost",
+    "max_safe_violation_cost",
     "total_safe_cost",
+    "total_grid_reward_penalty",
+    "avg_grid_reward_penalty",
+    "total_grid_lmp_cost_penalty",
+    "total_grid_mef_carbon_penalty",
+    "total_grid_safe_violation_penalty",
+    "reward_mismatch_count",
     "grid_opf_fail_count",
     "grid_mef_fail_count",
 ]
@@ -164,10 +185,24 @@ SUMMARY_KEYS = [
     "avg_grid_total_generation_cost",
     "avg_grid_total_emission_kg",
     "avg_grid_network_loss_mw",
+    "avg_grid_load_scale",
+    "avg_grid_reference_usep",
     "min_grid_voltage_pu",
     "max_grid_line_loading_percent",
     "total_grid_security_penalty",
+    "total_safe_violation_cost",
+    "total_safe_violation_voltage",
+    "total_safe_violation_line",
+    "total_safe_violation_opf",
+    "avg_safe_violation_cost",
+    "max_safe_violation_cost",
     "total_safe_cost",
+    "total_grid_reward_penalty",
+    "avg_grid_reward_penalty",
+    "total_grid_lmp_cost_penalty",
+    "total_grid_mef_carbon_penalty",
+    "total_grid_safe_violation_penalty",
+    "reward_mismatch_count",
     "grid_opf_fail_count",
     "grid_mef_fail_count",
 ]
@@ -193,6 +228,10 @@ PRIMARY_PRINT_KEYS = [
     "avg_grid_mef_minus",
     "min_grid_voltage_pu",
     "max_grid_line_loading_percent",
+    "total_safe_violation_cost",
+    "total_safe_violation_voltage",
+    "total_safe_violation_line",
+    "total_safe_violation_opf",
     "total_safe_cost",
     "grid_opf_success_rate",
     "grid_mef_success_rate",
@@ -222,6 +261,12 @@ def _mean_or_nan(values: Sequence[float]) -> float:
     return float(np.mean(values)) if values else np.nan
 
 
+def _truthy(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y"}
+    return bool(value)
+
+
 def aggregate_grid_episode_metrics(episode_infos: Sequence[Dict[str, Any]]) -> Dict[str, float]:
     if not episode_infos:
         return {
@@ -233,10 +278,24 @@ def aggregate_grid_episode_metrics(episode_infos: Sequence[Dict[str, Any]]) -> D
             "avg_grid_total_generation_cost": np.nan,
             "avg_grid_total_emission_kg": np.nan,
             "avg_grid_network_loss_mw": np.nan,
+            "avg_grid_load_scale": np.nan,
+            "avg_grid_reference_usep": np.nan,
             "min_grid_voltage_pu": np.nan,
             "max_grid_line_loading_percent": np.nan,
             "total_grid_security_penalty": np.nan,
+            "total_safe_violation_cost": np.nan,
+            "total_safe_violation_voltage": np.nan,
+            "total_safe_violation_line": np.nan,
+            "total_safe_violation_opf": np.nan,
+            "avg_safe_violation_cost": np.nan,
+            "max_safe_violation_cost": np.nan,
             "total_safe_cost": np.nan,
+            "total_grid_reward_penalty": np.nan,
+            "avg_grid_reward_penalty": np.nan,
+            "total_grid_lmp_cost_penalty": np.nan,
+            "total_grid_mef_carbon_penalty": np.nan,
+            "total_grid_safe_violation_penalty": np.nan,
+            "reward_mismatch_count": np.nan,
             "grid_opf_fail_count": np.nan,
             "grid_mef_fail_count": np.nan,
         }
@@ -246,6 +305,28 @@ def aggregate_grid_episode_metrics(episode_infos: Sequence[Dict[str, Any]]) -> D
     mef_success_count = sum(1 for info in episode_infos if bool(info.get("grid_mef_success", False)))
     min_voltage_values = _finite_values(episode_infos, "grid_min_voltage_pu")
     max_line_values = _finite_values(episode_infos, "grid_max_line_loading_percent")
+    safe_violation_cost_values = _finite_values(episode_infos, "safe_violation_cost")
+    if not safe_violation_cost_values:
+        safe_violation_cost_values = _finite_values(episode_infos, "safe_cost_total")
+    safe_violation_voltage_values = _finite_values(episode_infos, "safe_violation_voltage")
+    if not safe_violation_voltage_values:
+        safe_violation_voltage_values = _finite_values(episode_infos, "safe_cost_voltage")
+    safe_violation_line_values = _finite_values(episode_infos, "safe_violation_line")
+    if not safe_violation_line_values:
+        safe_violation_line_values = _finite_values(episode_infos, "safe_cost_line")
+    safe_violation_opf_values = _finite_values(episode_infos, "safe_violation_opf")
+    if not safe_violation_opf_values:
+        safe_violation_opf_values = _finite_values(episode_infos, "safe_cost_opf")
+    grid_reward_penalty_values = _finite_values(episode_infos, "grid_reward_penalty")
+    reward_mismatch_count = 0
+    for info in episode_infos:
+        if _truthy(info.get("grid_reward_enabled", False)):
+            continue
+        base_reward = safe_float(info.get("base_reward"))
+        adjusted_reward = safe_float(info.get("grid_adjusted_reward"))
+        if math.isfinite(base_reward) and math.isfinite(adjusted_reward):
+            if abs(base_reward - adjusted_reward) > 1e-9:
+                reward_mismatch_count += 1
 
     return {
         "grid_opf_success_rate": opf_success_count / max(n_steps, 1),
@@ -256,10 +337,24 @@ def aggregate_grid_episode_metrics(episode_infos: Sequence[Dict[str, Any]]) -> D
         "avg_grid_total_generation_cost": _mean_or_nan(_finite_values(episode_infos, "grid_total_generation_cost")),
         "avg_grid_total_emission_kg": _mean_or_nan(_finite_values(episode_infos, "grid_total_emission_kg")),
         "avg_grid_network_loss_mw": _mean_or_nan(_finite_values(episode_infos, "grid_network_loss_mw")),
+        "avg_grid_load_scale": _mean_or_nan(_finite_values(episode_infos, "grid_load_scale")),
+        "avg_grid_reference_usep": _mean_or_nan(_finite_values(episode_infos, "grid_reference_usep")),
         "min_grid_voltage_pu": min(min_voltage_values) if min_voltage_values else np.nan,
         "max_grid_line_loading_percent": max(max_line_values) if max_line_values else np.nan,
         "total_grid_security_penalty": float(np.sum(_finite_values(episode_infos, "grid_security_penalty"))),
-        "total_safe_cost": float(np.sum(_finite_values(episode_infos, "safe_cost_total"))),
+        "total_safe_violation_cost": float(np.sum(safe_violation_cost_values)),
+        "total_safe_violation_voltage": float(np.sum(safe_violation_voltage_values)),
+        "total_safe_violation_line": float(np.sum(safe_violation_line_values)),
+        "total_safe_violation_opf": float(np.sum(safe_violation_opf_values)),
+        "avg_safe_violation_cost": _mean_or_nan(safe_violation_cost_values),
+        "max_safe_violation_cost": max(safe_violation_cost_values) if safe_violation_cost_values else np.nan,
+        "total_safe_cost": float(np.sum(safe_violation_cost_values)),
+        "total_grid_reward_penalty": float(np.sum(grid_reward_penalty_values)),
+        "avg_grid_reward_penalty": _mean_or_nan(grid_reward_penalty_values),
+        "total_grid_lmp_cost_penalty": float(np.sum(_finite_values(episode_infos, "grid_lmp_cost_penalty"))),
+        "total_grid_mef_carbon_penalty": float(np.sum(_finite_values(episode_infos, "grid_mef_carbon_penalty"))),
+        "total_grid_safe_violation_penalty": float(np.sum(_finite_values(episode_infos, "grid_safe_violation_penalty"))),
+        "reward_mismatch_count": float(reward_mismatch_count),
         "grid_opf_fail_count": n_steps - opf_success_count,
         "grid_mef_fail_count": n_steps - mef_success_count,
     }
@@ -360,6 +455,9 @@ def build_hourly_row(
         "backlog_work": safe_float(info.get("backlog_work", info.get("Q"))),
         "queue_capacity_ref": safe_float(info.get("queue_capacity_ref")),
         "overflow_work": safe_float(info.get("overflow_work")),
+        "server_group_size": safe_float(info.get("server_group_size")),
+        "effective_total_server_count": safe_float(info.get("effective_total_server_count")),
+        "task_workload_scale": safe_float(info.get("task_workload_scale")),
         "P_IDC": safe_float(info.get("P_IDC")),
         "P_IDC_kW": safe_float(info.get("P_IDC_kW")),
         "P_grid_kW": safe_float(info.get("P_grid_kW")),
@@ -367,6 +465,11 @@ def build_hourly_row(
         "grid_power_limit_kW": safe_float(info.get("grid_power_limit_kW")),
         "bess_soc": safe_float(info.get("bess_soc")),
         "bess_energy_kWh": safe_float(info.get("bess_energy_kWh")),
+        "bess_mode": info.get("bess_mode", ""),
+        "bess_capacity_kWh": safe_float(info.get("bess_capacity_kWh")),
+        "bess_charge_power_max_kW": safe_float(info.get("bess_charge_power_max_kW")),
+        "bess_discharge_power_max_kW": safe_float(info.get("bess_discharge_power_max_kW")),
+        "bess_scale_factor": safe_float(info.get("bess_scale_factor")),
         "desired_bess_charge_power_kW": safe_float(info.get("desired_bess_charge_power_kW")),
         "desired_bess_discharge_power_kW": safe_float(info.get("desired_bess_discharge_power_kW")),
         "bess_charge_power_kW": safe_float(info.get("bess_charge_power_kW")),
@@ -443,6 +546,9 @@ def build_hourly_row(
         "grid_idc_ieee_bus_number": safe_float(info.get("grid_idc_ieee_bus_number")),
         "grid_idc_bus_index": safe_float(info.get("grid_idc_bus_index")),
         "grid_idc_load_mw": safe_float(info.get("grid_idc_load_mw")),
+        "grid_load_scale": safe_float(info.get("grid_load_scale")),
+        "grid_scenario_enabled": bool(info.get("grid_scenario_enabled", False)),
+        "grid_reference_usep": safe_float(info.get("grid_reference_usep")),
         "grid_lmp": safe_float(info.get("grid_lmp")),
         "grid_mef_plus": safe_float(info.get("grid_mef_plus")),
         "grid_mef_minus": safe_float(info.get("grid_mef_minus")),
@@ -456,11 +562,28 @@ def build_hourly_row(
         "grid_max_line_loading_percent": safe_float(info.get("grid_max_line_loading_percent")),
         "grid_voltage_violation_count": safe_float(info.get("grid_voltage_violation_count")),
         "grid_line_overload_count": safe_float(info.get("grid_line_overload_count")),
+        "grid_voltage_violation_magnitude": safe_float(info.get("grid_voltage_violation_magnitude")),
+        "grid_line_overload_magnitude": safe_float(info.get("grid_line_overload_magnitude")),
         "grid_security_penalty": safe_float(info.get("grid_security_penalty")),
+        "safe_violation_voltage": safe_float(info.get("safe_violation_voltage")),
+        "safe_violation_line": safe_float(info.get("safe_violation_line")),
+        "safe_violation_opf": safe_float(info.get("safe_violation_opf")),
+        "safe_violation_cost": safe_float(info.get("safe_violation_cost")),
         "safe_cost_voltage": safe_float(info.get("safe_cost_voltage")),
         "safe_cost_line": safe_float(info.get("safe_cost_line")),
         "safe_cost_opf": safe_float(info.get("safe_cost_opf")),
         "safe_cost_total": safe_float(info.get("safe_cost_total")),
+        "grid_reward_enabled": bool(info.get("grid_reward_enabled", False)),
+        "grid_reward_mode": info.get("grid_reward_mode", ""),
+        "grid_lmp_cost": safe_float(info.get("grid_lmp_cost")),
+        "grid_lmp_cost_norm": safe_float(info.get("grid_lmp_cost_norm")),
+        "grid_lmp_cost_penalty": safe_float(info.get("grid_lmp_cost_penalty")),
+        "grid_mef_carbon": safe_float(info.get("grid_mef_carbon")),
+        "grid_mef_carbon_norm": safe_float(info.get("grid_mef_carbon_norm")),
+        "grid_mef_carbon_penalty": safe_float(info.get("grid_mef_carbon_penalty")),
+        "grid_safe_violation": safe_float(info.get("grid_safe_violation")),
+        "grid_safe_violation_norm": safe_float(info.get("grid_safe_violation_norm")),
+        "grid_safe_violation_penalty": safe_float(info.get("grid_safe_violation_penalty")),
         "base_reward": safe_float(info.get("base_reward")),
         "grid_reward_penalty": safe_float(info.get("grid_reward_penalty")),
         "grid_adjusted_reward": safe_float(info.get("grid_adjusted_reward")),
@@ -851,10 +974,24 @@ def ordered_fieldnames(rows: List[Dict[str, Any]]) -> List[str]:
         "avg_grid_total_generation_cost",
         "avg_grid_total_emission_kg",
         "avg_grid_network_loss_mw",
+        "avg_grid_load_scale",
+        "avg_grid_reference_usep",
         "min_grid_voltage_pu",
         "max_grid_line_loading_percent",
         "total_grid_security_penalty",
+        "total_safe_violation_cost",
+        "total_safe_violation_voltage",
+        "total_safe_violation_line",
+        "total_safe_violation_opf",
+        "avg_safe_violation_cost",
+        "max_safe_violation_cost",
         "total_safe_cost",
+        "total_grid_reward_penalty",
+        "avg_grid_reward_penalty",
+        "total_grid_lmp_cost_penalty",
+        "total_grid_mef_carbon_penalty",
+        "total_grid_safe_violation_penalty",
+        "reward_mismatch_count",
         "grid_opf_fail_count",
         "grid_mef_fail_count",
         "eval_count",
@@ -949,6 +1086,13 @@ def save_hourly_mean_csv(rows, out_path):
         "total_peak_excess_kW_hour",
         "backlog_work",
         "overflow_work",
+        "server_group_size",
+        "effective_total_server_count",
+        "task_workload_scale",
+        "bess_capacity_kWh",
+        "bess_charge_power_max_kW",
+        "bess_discharge_power_max_kW",
+        "bess_scale_factor",
         "deadline_miss_count",
         "sla_penalty",
         "sla_violation_rate",
@@ -977,6 +1121,8 @@ def save_hourly_mean_csv(rows, out_path):
         "r_soc_final",
         "reward",
         "grid_idc_load_mw",
+        "grid_load_scale",
+        "grid_reference_usep",
         "grid_lmp",
         "grid_mef_plus",
         "grid_mef_minus",
@@ -990,11 +1136,26 @@ def save_hourly_mean_csv(rows, out_path):
         "grid_max_line_loading_percent",
         "grid_voltage_violation_count",
         "grid_line_overload_count",
+        "grid_voltage_violation_magnitude",
+        "grid_line_overload_magnitude",
         "grid_security_penalty",
+        "safe_violation_voltage",
+        "safe_violation_line",
+        "safe_violation_opf",
+        "safe_violation_cost",
         "safe_cost_voltage",
         "safe_cost_line",
         "safe_cost_opf",
         "safe_cost_total",
+        "grid_lmp_cost",
+        "grid_lmp_cost_norm",
+        "grid_lmp_cost_penalty",
+        "grid_mef_carbon",
+        "grid_mef_carbon_norm",
+        "grid_mef_carbon_penalty",
+        "grid_safe_violation",
+        "grid_safe_violation_norm",
+        "grid_safe_violation_penalty",
         "base_reward",
         "grid_reward_penalty",
         "grid_adjusted_reward",
