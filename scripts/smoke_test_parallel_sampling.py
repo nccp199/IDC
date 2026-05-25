@@ -66,7 +66,7 @@ def main() -> None:
             n_steps=PPO_CONFIG["n_steps"],
             batch_size=PPO_CONFIG["batch_size"],
         )
-        run_random_vec_env_smoke(
+        summary = run_random_vec_env_smoke(
             vec_env=vec_env,
             n_envs=max(int(args.n_envs), 1),
             steps=args.steps,
@@ -74,6 +74,14 @@ def main() -> None:
             expected_obs_dim=264,
             expected_action_dim=23,
         )
+        print("\n[PARALLEL CACHE SUMMARY]")
+        for key in [
+            "cache_enabled",
+            "cache_load_bin_mw",
+            "opf_cache_hit_rate",
+            "mef_cache_hit_rate",
+        ]:
+            print(f"{key}: {summary.get(key)}")
     finally:
         if vec_env is not None:
             vec_env.close()

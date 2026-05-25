@@ -118,6 +118,12 @@ METRIC_KEYS = [
     "total_non_interruptible_interruption_count",
     "grid_opf_success_rate",
     "grid_mef_success_rate",
+    "grid_opf_cache_hit_count",
+    "grid_opf_cache_miss_count",
+    "grid_opf_cache_hit_rate",
+    "grid_mef_cache_hit_count",
+    "grid_mef_cache_miss_count",
+    "grid_mef_cache_hit_rate",
     "avg_grid_lmp",
     "avg_grid_mef_plus",
     "avg_grid_mef_minus",
@@ -179,6 +185,12 @@ SUMMARY_KEYS = [
     "total_bess_degradation_cost",
     "grid_opf_success_rate",
     "grid_mef_success_rate",
+    "grid_opf_cache_hit_count",
+    "grid_opf_cache_miss_count",
+    "grid_opf_cache_hit_rate",
+    "grid_mef_cache_hit_count",
+    "grid_mef_cache_miss_count",
+    "grid_mef_cache_hit_rate",
     "avg_grid_lmp",
     "avg_grid_mef_plus",
     "avg_grid_mef_minus",
@@ -235,6 +247,8 @@ PRIMARY_PRINT_KEYS = [
     "total_safe_cost",
     "grid_opf_success_rate",
     "grid_mef_success_rate",
+    "grid_opf_cache_hit_rate",
+    "grid_mef_cache_hit_rate",
 ]
 
 
@@ -272,6 +286,12 @@ def aggregate_grid_episode_metrics(episode_infos: Sequence[Dict[str, Any]]) -> D
         return {
             "grid_opf_success_rate": np.nan,
             "grid_mef_success_rate": np.nan,
+            "grid_opf_cache_hit_count": 0.0,
+            "grid_opf_cache_miss_count": 0.0,
+            "grid_opf_cache_hit_rate": np.nan,
+            "grid_mef_cache_hit_count": 0.0,
+            "grid_mef_cache_miss_count": 0.0,
+            "grid_mef_cache_hit_rate": np.nan,
             "avg_grid_lmp": np.nan,
             "avg_grid_mef_plus": np.nan,
             "avg_grid_mef_minus": np.nan,
@@ -301,8 +321,21 @@ def aggregate_grid_episode_metrics(episode_infos: Sequence[Dict[str, Any]]) -> D
         }
 
     n_steps = len(episode_infos)
+    final_info = episode_infos[-1]
     opf_success_count = sum(1 for info in episode_infos if bool(info.get("grid_opf_success", False)))
     mef_success_count = sum(1 for info in episode_infos if bool(info.get("grid_mef_success", False)))
+    opf_cache_hit_count = safe_float(final_info.get("grid_opf_cache_hit_count"), default=0.0)
+    opf_cache_miss_count = safe_float(final_info.get("grid_opf_cache_miss_count"), default=0.0)
+    mef_cache_hit_count = safe_float(final_info.get("grid_mef_cache_hit_count"), default=0.0)
+    mef_cache_miss_count = safe_float(final_info.get("grid_mef_cache_miss_count"), default=0.0)
+    opf_cache_hit_rate = safe_float(final_info.get("grid_opf_cache_hit_rate"), default=np.nan)
+    mef_cache_hit_rate = safe_float(final_info.get("grid_mef_cache_hit_rate"), default=np.nan)
+    if not math.isfinite(opf_cache_hit_rate):
+        opf_cache_total = opf_cache_hit_count + opf_cache_miss_count
+        opf_cache_hit_rate = opf_cache_hit_count / opf_cache_total if opf_cache_total > 0.0 else np.nan
+    if not math.isfinite(mef_cache_hit_rate):
+        mef_cache_total = mef_cache_hit_count + mef_cache_miss_count
+        mef_cache_hit_rate = mef_cache_hit_count / mef_cache_total if mef_cache_total > 0.0 else np.nan
     min_voltage_values = _finite_values(episode_infos, "grid_min_voltage_pu")
     max_line_values = _finite_values(episode_infos, "grid_max_line_loading_percent")
     safe_violation_cost_values = _finite_values(episode_infos, "safe_violation_cost")
@@ -331,6 +364,12 @@ def aggregate_grid_episode_metrics(episode_infos: Sequence[Dict[str, Any]]) -> D
     return {
         "grid_opf_success_rate": opf_success_count / max(n_steps, 1),
         "grid_mef_success_rate": mef_success_count / max(n_steps, 1),
+        "grid_opf_cache_hit_count": float(opf_cache_hit_count),
+        "grid_opf_cache_miss_count": float(opf_cache_miss_count),
+        "grid_opf_cache_hit_rate": float(opf_cache_hit_rate),
+        "grid_mef_cache_hit_count": float(mef_cache_hit_count),
+        "grid_mef_cache_miss_count": float(mef_cache_miss_count),
+        "grid_mef_cache_hit_rate": float(mef_cache_hit_rate),
         "avg_grid_lmp": _mean_or_nan(_finite_values(episode_infos, "grid_lmp")),
         "avg_grid_mef_plus": _mean_or_nan(_finite_values(episode_infos, "grid_mef_plus")),
         "avg_grid_mef_minus": _mean_or_nan(_finite_values(episode_infos, "grid_mef_minus")),
@@ -543,6 +582,13 @@ def build_hourly_row(
         "grid_opf_mode": info.get("grid_opf_mode", ""),
         "grid_opf_success": bool(info.get("grid_opf_success", False)),
         "grid_mef_success": bool(info.get("grid_mef_success", False)),
+        "grid_cache_enabled": bool(info.get("grid_cache_enabled", False)),
+        "grid_opf_cache_hit": bool(info.get("grid_opf_cache_hit", False)),
+        "grid_mef_cache_hit": bool(info.get("grid_mef_cache_hit", False)),
+        "grid_opf_cache_hit_rate": safe_float(info.get("grid_opf_cache_hit_rate"), default=0.0),
+        "grid_mef_cache_hit_rate": safe_float(info.get("grid_mef_cache_hit_rate"), default=0.0),
+        "grid_cache_opf_size": safe_float(info.get("grid_cache_opf_size"), default=0.0),
+        "grid_cache_mef_size": safe_float(info.get("grid_cache_mef_size"), default=0.0),
         "grid_idc_ieee_bus_number": safe_float(info.get("grid_idc_ieee_bus_number")),
         "grid_idc_bus_index": safe_float(info.get("grid_idc_bus_index")),
         "grid_idc_load_mw": safe_float(info.get("grid_idc_load_mw")),
@@ -968,6 +1014,12 @@ def ordered_fieldnames(rows: List[Dict[str, Any]]) -> List[str]:
         "total_non_interruptible_interruption_count",
         "grid_opf_success_rate",
         "grid_mef_success_rate",
+        "grid_opf_cache_hit_count",
+        "grid_opf_cache_miss_count",
+        "grid_opf_cache_hit_rate",
+        "grid_mef_cache_hit_count",
+        "grid_mef_cache_miss_count",
+        "grid_mef_cache_hit_rate",
         "avg_grid_lmp",
         "avg_grid_mef_plus",
         "avg_grid_mef_minus",
@@ -1120,6 +1172,13 @@ def save_hourly_mean_csv(rows, out_path):
         "r_final_queue",
         "r_soc_final",
         "reward",
+        "grid_cache_enabled",
+        "grid_opf_cache_hit",
+        "grid_mef_cache_hit",
+        "grid_opf_cache_hit_rate",
+        "grid_mef_cache_hit_rate",
+        "grid_cache_opf_size",
+        "grid_cache_mef_size",
         "grid_idc_load_mw",
         "grid_load_scale",
         "grid_reference_usep",

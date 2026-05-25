@@ -21,6 +21,7 @@ from grid_model import (
     load_ieee14_case,
     solve_opf,
 )
+from grid_model.grid_cache import DEFAULT_GRID_CACHE_CONFIG, GridResultCache
 
 
 DEFAULT_GRID_CONFIG = {
@@ -73,11 +74,18 @@ class GridCoupledEnv(gym.Wrapper):
         grid_config: dict[str, Any] | None = None,
         grid_reward_config: dict[str, Any] | None = None,
         grid_scenario_config: dict[str, Any] | None = None,
+        grid_cache_config: dict[str, Any] | None = None,
     ):
         super().__init__(base_env)
         self.grid_config = {**DEFAULT_GRID_CONFIG, **(grid_config or {})}
         self.grid_reward_config = {**DEFAULT_GRID_REWARD_CONFIG, **(grid_reward_config or {})}
         self.grid_scenario_config = {**DEFAULT_GRID_SCENARIO_CONFIG, **(grid_scenario_config or {})}
+        default_grid_cache_config = _load_default_grid_cache_config() if grid_cache_config is None else {}
+        self.grid_cache_config = {
+            **DEFAULT_GRID_CACHE_CONFIG,
+            **default_grid_cache_config,
+            **(grid_cache_config or {}),
+        }
 
         self.grid_enabled = bool(self.grid_config.get("enable_grid_coupling", True))
         self.case_name = str(self.grid_config.get("case_name", "ieee14"))
@@ -86,6 +94,7 @@ class GridCoupledEnv(gym.Wrapper):
 
         self.grid_case = load_ieee14_case()
         self.gen_emission_factors = build_default_gen_emission_factors(self.grid_case)
+        self.grid_cache = GridResultCache(self.grid_cache_config)
         self.idc_ieee_bus_number = int(self.grid_config.get("idc_ieee_bus_number", 9))
         self.idc_bus_idx = get_bus_index_by_ieee_number(self.grid_case, self.idc_ieee_bus_number)
         self.opf_mode = str(self.grid_config.get("opf_mode", "ac")).lower()
@@ -182,6 +191,8 @@ class GridCoupledEnv(gym.Wrapper):
         return float(load_scale), float(usep)
 
     def reset(self, **kwargs):
+        if bool(self.grid_cache_config.get("cache_clear_on_reset", False)):
+            self.grid_cache.clear()
         obs, info = self.env.reset(**kwargs)
         info = dict(info)
         if self.grid_enabled:
@@ -215,37 +226,22 @@ class GridCoupledEnv(gym.Wrapper):
 
     def _run_grid_update(self, info: dict[str, Any], base_reward: float, idc_load_mw: float, hour: int) -> float:
         load_scale_t, reference_usep = self._grid_scenario_values(hour)
-        opf_result = solve_opf(
-            grid_case=self.grid_case,
-            mode=self.opf_mode,
-            idc_bus_id=self.idc_bus_idx,
+        opf_result, opf_cache_hit = self._solve_opf_with_cache(
             idc_load_mw=idc_load_mw,
-            load_scale=load_scale_t,
+            hour=hour,
+            load_scale_t=load_scale_t,
         )
         grid_metrics = extract_grid_metrics(opf_result)
         total_emission_kg = self._compute_opf_emission(opf_result)
 
         mef_result = None
+        mef_cache_hit = False
         if self.use_mef:
-            try:
-                mef_result = calculate_nodal_mef(
-                    grid_case=self.grid_case,
-                    bus_id=self.idc_bus_idx,
-                    mode=self.opf_mode,
-                    delta_p_mw=self.delta_p_mw,
-                    load_scale=load_scale_t,
-                    base_idc_load_mw=idc_load_mw,
-                    clamp_minus_load=True,
-                    gen_emission_factors_kg_per_mwh=self.gen_emission_factors,
-                )
-            except Exception as exc:
-                mef_result = MEFResult(
-                    success=False,
-                    mode=self.opf_mode,
-                    bus_id=self.idc_bus_idx,
-                    delta_p_mw=self.delta_p_mw,
-                    message=f"MEF calculation failed: {type(exc).__name__}: {exc}",
-                )
+            mef_result, mef_cache_hit = self._calculate_mef_with_cache(
+                idc_load_mw=idc_load_mw,
+                hour=hour,
+                load_scale_t=load_scale_t,
+            )
 
         self._inject_grid_info(
             info=info,
@@ -257,12 +253,85 @@ class GridCoupledEnv(gym.Wrapper):
             total_emission_kg=total_emission_kg,
             load_scale_t=load_scale_t,
             reference_usep=reference_usep,
+            opf_cache_hit=opf_cache_hit,
+            mef_cache_hit=mef_cache_hit,
         )
         grid_reward_penalty = self._compute_grid_reward_penalty(info, opf_result, mef_result, grid_metrics)
         adjusted_reward = base_reward - grid_reward_penalty
         info["grid_reward_penalty"] = float(grid_reward_penalty)
         info["grid_adjusted_reward"] = float(adjusted_reward)
         return float(adjusted_reward)
+
+    def _solve_opf_with_cache(self, idc_load_mw: float, hour: int, load_scale_t: float):
+        if bool(self.grid_cache.enabled and self.grid_cache.cache_opf_enabled):
+            key = self.grid_cache.make_opf_key(
+                opf_mode=self.opf_mode,
+                idc_bus=self.idc_bus_idx,
+                hour=hour,
+                grid_load_scale=load_scale_t,
+                idc_load_mw=idc_load_mw,
+            )
+            cached = self.grid_cache.get_opf(key)
+            if cached is not None:
+                return cached, True
+            opf_result = solve_opf(
+                grid_case=self.grid_case,
+                mode=self.opf_mode,
+                idc_bus_id=self.idc_bus_idx,
+                idc_load_mw=idc_load_mw,
+                load_scale=load_scale_t,
+            )
+            self.grid_cache.put_opf(key, opf_result)
+            return opf_result, False
+
+        opf_result = solve_opf(
+            grid_case=self.grid_case,
+            mode=self.opf_mode,
+            idc_bus_id=self.idc_bus_idx,
+            idc_load_mw=idc_load_mw,
+            load_scale=load_scale_t,
+        )
+        return opf_result, False
+
+    def _calculate_mef_with_cache(self, idc_load_mw: float, hour: int, load_scale_t: float):
+        if bool(self.grid_cache.enabled and self.grid_cache.cache_mef_enabled):
+            key = self.grid_cache.make_mef_key(
+                opf_mode=self.opf_mode,
+                idc_bus=self.idc_bus_idx,
+                hour=hour,
+                grid_load_scale=load_scale_t,
+                idc_load_mw=idc_load_mw,
+                delta_p_mw=self.delta_p_mw,
+            )
+            cached = self.grid_cache.get_mef(key)
+            if cached is not None:
+                return cached, True
+            mef_result = self._calculate_uncached_mef(idc_load_mw=idc_load_mw, load_scale_t=load_scale_t)
+            self.grid_cache.put_mef(key, mef_result)
+            return mef_result, False
+
+        return self._calculate_uncached_mef(idc_load_mw=idc_load_mw, load_scale_t=load_scale_t), False
+
+    def _calculate_uncached_mef(self, idc_load_mw: float, load_scale_t: float):
+        try:
+            return calculate_nodal_mef(
+                grid_case=self.grid_case,
+                bus_id=self.idc_bus_idx,
+                mode=self.opf_mode,
+                delta_p_mw=self.delta_p_mw,
+                load_scale=load_scale_t,
+                base_idc_load_mw=idc_load_mw,
+                clamp_minus_load=True,
+                gen_emission_factors_kg_per_mwh=self.gen_emission_factors,
+            )
+        except Exception as exc:
+            return MEFResult(
+                success=False,
+                mode=self.opf_mode,
+                bus_id=self.idc_bus_idx,
+                delta_p_mw=self.delta_p_mw,
+                message=f"MEF calculation failed: {type(exc).__name__}: {exc}",
+            )
 
     def _build_grid_obs_from_info(self, info: dict[str, Any]) -> np.ndarray:
         lmp_ref = max(float(self.grid_config.get("grid_lmp_ref", 100.0)), 1e-9)
@@ -313,6 +382,8 @@ class GridCoupledEnv(gym.Wrapper):
         total_emission_kg: float,
         load_scale_t: float,
         reference_usep: float,
+        opf_cache_hit: bool = False,
+        mef_cache_hit: bool = False,
     ) -> None:
         grid_lmp = _safe_float(opf_result.lmp_by_bus.get(self.idc_bus_idx, math.nan))
         mef_success = bool(mef_result.success) if mef_result is not None else False
@@ -385,6 +456,7 @@ class GridCoupledEnv(gym.Wrapper):
                 "base_reward": float(base_reward),
                 "grid_reward_penalty": 0.0,
                 "grid_adjusted_reward": float(base_reward),
+                **self._grid_cache_info(opf_cache_hit=opf_cache_hit, mef_cache_hit=mef_cache_hit),
             }
         )
 
@@ -434,8 +506,28 @@ class GridCoupledEnv(gym.Wrapper):
         )
         return float(penalty)
 
-    def _disabled_grid_info(self, base_reward: float) -> dict[str, Any]:
+    def _grid_cache_info(self, opf_cache_hit: bool = False, mef_cache_hit: bool = False) -> dict[str, Any]:
+        stats = self.grid_cache.stats()
         return {
+            "grid_cache_enabled": bool(stats.get("enabled", False)),
+            "grid_opf_cache_enabled": bool(stats.get("opf_enabled", False)),
+            "grid_mef_cache_enabled": bool(stats.get("mef_enabled", False)),
+            "grid_opf_cache_hit": bool(opf_cache_hit),
+            "grid_mef_cache_hit": bool(mef_cache_hit),
+            "grid_opf_cache_hit_count": int(stats.get("opf_hit_count", 0)),
+            "grid_opf_cache_miss_count": int(stats.get("opf_miss_count", 0)),
+            "grid_opf_cache_hit_rate": float(stats.get("opf_hit_rate", 0.0)),
+            "grid_mef_cache_hit_count": int(stats.get("mef_hit_count", 0)),
+            "grid_mef_cache_miss_count": int(stats.get("mef_miss_count", 0)),
+            "grid_mef_cache_hit_rate": float(stats.get("mef_hit_rate", 0.0)),
+            "grid_cache_opf_size": int(stats.get("opf_size", 0)),
+            "grid_cache_mef_size": int(stats.get("mef_size", 0)),
+            "grid_cache_load_bin_mw": float(stats.get("cache_load_bin_mw", 0.0)),
+            "grid_cache_load_scale_bin": float(stats.get("cache_load_scale_bin", 0.0)),
+        }
+
+    def _disabled_grid_info(self, base_reward: float) -> dict[str, Any]:
+        info = {
             "grid_enabled": False,
             "grid_opf_mode": self.opf_mode,
             "grid_opf_success": False,
@@ -490,6 +582,8 @@ class GridCoupledEnv(gym.Wrapper):
             "grid_reward_penalty": 0.0,
             "grid_adjusted_reward": float(base_reward),
         }
+        info.update(self._grid_cache_info(opf_cache_hit=False, mef_cache_hit=False))
+        return info
 
 
 def _safe_float(value: Any, default: float = math.nan) -> float:
@@ -498,6 +592,14 @@ def _safe_float(value: Any, default: float = math.nan) -> float:
     except (TypeError, ValueError):
         return default
     return number if math.isfinite(number) else default
+
+
+def _load_default_grid_cache_config() -> dict[str, Any]:
+    try:
+        from configs.config_ultimate import GRID_CACHE_CONFIG
+    except Exception:
+        return {}
+    return dict(GRID_CACHE_CONFIG)
 
 
 def _finite_or_zero(value: Any) -> float:

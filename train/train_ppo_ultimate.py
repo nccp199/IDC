@@ -16,6 +16,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+import numpy as np
+
 
 THREAD_ENV_VARS = (
     "OMP_NUM_THREADS",
@@ -37,6 +39,7 @@ set_cpu_thread_env(1, force=False)
 
 from configs.config_ultimate import (  # noqa: E402
     DEFAULT_EVAL_SEED,
+    GRID_CACHE_CONFIG,
     GRID_CONFIG,
     GRID_REWARD_CONFIG,
     GRID_SCENARIO_CONFIG,
@@ -67,6 +70,7 @@ def make_single_env(
     rank: int = 0,
     verbose: bool = False,
     monitor: bool = True,
+    grid_cache_config: Optional[Dict[str, Any]] = None,
 ) -> Any:
     """Create one IDC + GridCoupledEnv inside the current process."""
     worker_seed = _worker_seed(seed, rank)
@@ -79,7 +83,13 @@ def make_single_env(
         "task_seed": worker_seed,
     }
     base_env = IDCPriceEnv20D(**env_kwargs)
-    env = GridCoupledEnv(base_env, GRID_CONFIG, GRID_REWARD_CONFIG, GRID_SCENARIO_CONFIG)
+    env = GridCoupledEnv(
+        base_env,
+        GRID_CONFIG,
+        GRID_REWARD_CONFIG,
+        GRID_SCENARIO_CONFIG,
+        grid_cache_config=grid_cache_config,
+    )
     if worker_seed is not None:
         env.action_space.seed(worker_seed)
         env.observation_space.seed(worker_seed)
@@ -88,7 +98,12 @@ def make_single_env(
     if not monitor:
         return env
 
-    from stable_baselines3.common.monitor import Monitor
+    try:
+        from stable_baselines3.common.monitor import Monitor
+    except ModuleNotFoundError as exc:
+        if exc.name == "stable_baselines3":
+            return env
+        raise
 
     return Monitor(env)
 
@@ -98,9 +113,18 @@ def make_env(
     reward_config: Dict[str, Any],
     data_config: Dict[str, Any],
     seed: Optional[int] = None,
+    grid_cache_config: Optional[Dict[str, Any]] = None,
 ) -> Any:
     """Backward-compatible single monitored environment factory."""
-    return make_single_env(env_config, reward_config, data_config, seed=seed, rank=0, monitor=True)
+    return make_single_env(
+        env_config,
+        reward_config,
+        data_config,
+        seed=seed,
+        rank=0,
+        monitor=True,
+        grid_cache_config=grid_cache_config,
+    )
 
 
 def make_unmonitored_env(
@@ -108,8 +132,17 @@ def make_unmonitored_env(
     reward_config: Dict[str, Any],
     data_config: Dict[str, Any],
     seed: Optional[int] = None,
+    grid_cache_config: Optional[Dict[str, Any]] = None,
 ) -> GridCoupledEnv:
-    return make_single_env(env_config, reward_config, data_config, seed=seed, rank=0, monitor=False)
+    return make_single_env(
+        env_config,
+        reward_config,
+        data_config,
+        seed=seed,
+        rank=0,
+        monitor=False,
+        grid_cache_config=grid_cache_config,
+    )
 
 
 def make_env_fn(
@@ -120,6 +153,7 @@ def make_env_fn(
     data_config: Dict[str, Any],
     cpu_threads_per_worker: int = 1,
     verbose: bool = False,
+    grid_cache_config: Optional[Dict[str, Any]] = None,
 ):
     """Return a pickleable VecEnv worker factory."""
 
@@ -133,9 +167,181 @@ def make_env_fn(
             rank=rank,
             verbose=verbose,
             monitor=True,
+            grid_cache_config=grid_cache_config,
         )
 
     return _init
+
+
+class _SimpleDummyVecEnv:
+    """Small VecEnv fallback used only when stable_baselines3 is unavailable."""
+
+    def __init__(self, env_fns):
+        self.envs = [env_fn() for env_fn in env_fns]
+        if not self.envs:
+            raise ValueError("At least one environment is required.")
+        self.observation_space = self.envs[0].observation_space
+        self.action_space = self.envs[0].action_space
+
+    def reset(self):
+        observations = []
+        for env in self.envs:
+            obs, _info = env.reset()
+            observations.append(obs)
+        return _stack_obs(observations)
+
+    def step(self, actions):
+        observations = []
+        rewards = []
+        dones = []
+        infos = []
+        for env, action in zip(self.envs, actions):
+            obs, reward, terminated, truncated, info = env.step(action)
+            done = bool(terminated or truncated)
+            info = dict(info)
+            if done:
+                info["terminal_observation"] = obs
+                obs, reset_info = env.reset()
+                info["reset_info"] = reset_info
+            observations.append(obs)
+            rewards.append(float(reward))
+            dones.append(done)
+            infos.append(info)
+        return _stack_obs(observations), np.asarray(rewards, dtype=np.float32), np.asarray(dones, dtype=bool), infos
+
+    def close(self):
+        for env in self.envs:
+            env.close()
+
+
+class _SimpleSubprocVecEnv:
+    """Small subprocess VecEnv fallback for smoke tests and cache benchmarking."""
+
+    def __init__(
+        self,
+        n_envs: int,
+        base_seed: Optional[int],
+        env_config: Dict[str, Any],
+        reward_config: Dict[str, Any],
+        data_config: Dict[str, Any],
+        start_method: str,
+        cpu_threads_per_worker: int,
+        verbose_workers: bool,
+        grid_cache_config: Optional[Dict[str, Any]],
+    ):
+        import multiprocessing as mp
+
+        self.n_envs = max(int(n_envs), 1)
+        ctx = mp.get_context(start_method)
+        self.remotes = []
+        self.processes = []
+        for rank in range(self.n_envs):
+            parent_remote, child_remote = ctx.Pipe()
+            process = ctx.Process(
+                target=_simple_subproc_worker,
+                args=(
+                    child_remote,
+                    rank,
+                    base_seed,
+                    env_config,
+                    reward_config,
+                    data_config,
+                    cpu_threads_per_worker,
+                    verbose_workers,
+                    grid_cache_config,
+                ),
+            )
+            process.daemon = True
+            process.start()
+            child_remote.close()
+            self.remotes.append(parent_remote)
+            self.processes.append(process)
+
+        self.remotes[0].send(("get_spaces", None))
+        self.observation_space, self.action_space = self.remotes[0].recv()
+
+    def reset(self):
+        for remote in self.remotes:
+            remote.send(("reset", None))
+        return _stack_obs([remote.recv()[0] for remote in self.remotes])
+
+    def step(self, actions):
+        for remote, action in zip(self.remotes, actions):
+            remote.send(("step", action))
+        results = [remote.recv() for remote in self.remotes]
+        observations, rewards, dones, infos = zip(*results)
+        return (
+            _stack_obs(observations),
+            np.asarray(rewards, dtype=np.float32),
+            np.asarray(dones, dtype=bool),
+            list(infos),
+        )
+
+    def close(self):
+        for remote in self.remotes:
+            try:
+                remote.send(("close", None))
+            except Exception:
+                pass
+        for process in self.processes:
+            process.join(timeout=5)
+            if process.is_alive():
+                process.terminate()
+
+
+def _simple_subproc_worker(
+    remote,
+    rank: int,
+    base_seed: Optional[int],
+    env_config: Dict[str, Any],
+    reward_config: Dict[str, Any],
+    data_config: Dict[str, Any],
+    cpu_threads_per_worker: int,
+    verbose: bool,
+    grid_cache_config: Optional[Dict[str, Any]],
+) -> None:
+    set_cpu_thread_env(cpu_threads_per_worker, force=True)
+    env = make_single_env(
+        env_config=env_config,
+        reward_config=reward_config,
+        data_config=data_config,
+        seed=base_seed,
+        rank=rank,
+        verbose=verbose,
+        monitor=False,
+        grid_cache_config=grid_cache_config,
+    )
+    try:
+        while True:
+            command, data = remote.recv()
+            if command == "get_spaces":
+                remote.send((env.observation_space, env.action_space))
+            elif command == "reset":
+                remote.send(env.reset())
+            elif command == "step":
+                obs, reward, terminated, truncated, info = env.step(data)
+                done = bool(terminated or truncated)
+                info = dict(info)
+                if done:
+                    info["terminal_observation"] = obs
+                    obs, reset_info = env.reset()
+                    info["reset_info"] = reset_info
+                remote.send((obs, float(reward), done, info))
+            elif command == "close":
+                break
+            else:
+                raise RuntimeError(f"Unknown VecEnv worker command: {command!r}")
+    except EOFError:
+        pass
+    finally:
+        env.close()
+        remote.close()
+
+
+def _stack_obs(observations):
+    import numpy as np
+
+    return np.stack([np.asarray(obs, dtype=np.float32) for obs in observations], axis=0)
 
 
 def sanity_check_env(
@@ -198,17 +404,19 @@ def build_vec_env(
     n_steps: Optional[int] = None,
     batch_size: Optional[int] = None,
     verbose_workers: bool = False,
+    grid_cache_config: Optional[Dict[str, Any]] = None,
 ):
     """Build a DummyVecEnv or SubprocVecEnv without sharing env objects."""
+    sb3_vec_env_available = True
     try:
         from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
     except ModuleNotFoundError as exc:
         if exc.name == "stable_baselines3":
-            raise RuntimeError(
-                "stable_baselines3 is required for DummyVecEnv/SubprocVecEnv sampling. "
-                "Install the project training dependencies before running parallel smoke or PPO training."
-            ) from exc
-        raise
+            sb3_vec_env_available = False
+            DummyVecEnv = None
+            SubprocVecEnv = None
+        else:
+            raise
 
     n_envs = max(int(n_envs), 1)
     requested_type = str(vec_env_type or "auto").strip().lower()
@@ -235,15 +443,31 @@ def build_vec_env(
             data_config=data_config,
             cpu_threads_per_worker=cpu_threads_per_worker,
             verbose=verbose_workers,
+            grid_cache_config=grid_cache_config,
         )
         for rank in range(n_envs)
     ]
 
     try:
-        if actual_type == "dummy":
-            vec_env = DummyVecEnv(env_fns)
+        if sb3_vec_env_available:
+            if actual_type == "dummy":
+                vec_env = DummyVecEnv(env_fns)
+            else:
+                vec_env = SubprocVecEnv(env_fns, start_method=start_method)
+        elif actual_type == "dummy":
+            vec_env = _SimpleDummyVecEnv(env_fns)
         else:
-            vec_env = SubprocVecEnv(env_fns, start_method=start_method)
+            vec_env = _SimpleSubprocVecEnv(
+                n_envs=n_envs,
+                base_seed=base_seed,
+                env_config=env_config,
+                reward_config=reward_config,
+                data_config=data_config,
+                start_method=start_method,
+                cpu_threads_per_worker=cpu_threads_per_worker,
+                verbose_workers=verbose_workers,
+                grid_cache_config=grid_cache_config,
+            )
     except Exception as exc:
         raise RuntimeError(
             f"Failed to create {actual_type} VecEnv with n_envs={n_envs}, "
@@ -258,6 +482,7 @@ def build_vec_env(
 
     print(">>> VecEnv configuration")
     print(f"    vec_env_type = {actual_type} (requested={requested_type})")
+    print(f"    vec_env_backend = {'stable_baselines3' if sb3_vec_env_available else 'simple_fallback'}")
     print(f"    n_envs = {n_envs}")
     print(f"    obs_shape = {obs_shape}")
     print(f"    action_shape = {action_shape}")
@@ -310,6 +535,14 @@ def run_random_vec_env_smoke(
     total_safe_violation_cost = 0.0
     reward_mismatch_count = 0
     step_counts = [0 for _ in range(int(n_envs))]
+    opf_cache_hit_counts = [0 for _ in range(int(n_envs))]
+    opf_cache_miss_counts = [0 for _ in range(int(n_envs))]
+    mef_cache_hit_counts = [0 for _ in range(int(n_envs))]
+    mef_cache_miss_counts = [0 for _ in range(int(n_envs))]
+    opf_cache_sizes = [0 for _ in range(int(n_envs))]
+    mef_cache_sizes = [0 for _ in range(int(n_envs))]
+    cache_enabled = False
+    cache_load_bin_mw = math.nan
 
     for _ in range(int(steps)):
         actions = rng.uniform(low=action_low, high=action_high, size=action_shape).astype(np.float32)
@@ -335,6 +568,16 @@ def run_random_vec_env_smoke(
             if math.isfinite(grid_mef_plus):
                 mef_values.append(grid_mef_plus)
             total_safe_violation_cost += _finite_or_zero(info.get("safe_violation_cost"))
+            cache_enabled = cache_enabled or bool(info.get("grid_cache_enabled", False))
+            bin_value = _finite_float(info.get("grid_cache_load_bin_mw"))
+            if math.isfinite(bin_value):
+                cache_load_bin_mw = bin_value
+            opf_cache_hit_counts[env_idx] = int(_finite_or_zero(info.get("grid_opf_cache_hit_count")))
+            opf_cache_miss_counts[env_idx] = int(_finite_or_zero(info.get("grid_opf_cache_miss_count")))
+            mef_cache_hit_counts[env_idx] = int(_finite_or_zero(info.get("grid_mef_cache_hit_count")))
+            mef_cache_miss_counts[env_idx] = int(_finite_or_zero(info.get("grid_mef_cache_miss_count")))
+            opf_cache_sizes[env_idx] = int(_finite_or_zero(info.get("grid_cache_opf_size")))
+            mef_cache_sizes[env_idx] = int(_finite_or_zero(info.get("grid_cache_mef_size")))
 
             if not bool(info.get("grid_reward_enabled", False)):
                 base_reward = _finite_float(info.get("base_reward"))
@@ -345,6 +588,13 @@ def run_random_vec_env_smoke(
 
     if any(count <= 0 for count in step_counts):
         raise RuntimeError(f"At least one environment did not step: step_counts={step_counts}")
+
+    opf_cache_hit_count = int(sum(opf_cache_hit_counts))
+    opf_cache_miss_count = int(sum(opf_cache_miss_counts))
+    mef_cache_hit_count = int(sum(mef_cache_hit_counts))
+    mef_cache_miss_count = int(sum(mef_cache_miss_counts))
+    opf_cache_total = opf_cache_hit_count + opf_cache_miss_count
+    mef_cache_total = mef_cache_hit_count + mef_cache_miss_count
 
     summary = {
         "n_envs": int(n_envs),
@@ -360,6 +610,16 @@ def run_random_vec_env_smoke(
         "avg_grid_mef_plus": _mean_or_nan(mef_values),
         "total_safe_violation_cost": float(total_safe_violation_cost),
         "reward_mismatch_count": int(reward_mismatch_count),
+        "cache_enabled": bool(cache_enabled),
+        "cache_load_bin_mw": float(cache_load_bin_mw),
+        "opf_cache_hit_count": opf_cache_hit_count,
+        "opf_cache_miss_count": opf_cache_miss_count,
+        "opf_cache_hit_rate": float(opf_cache_hit_count / opf_cache_total) if opf_cache_total else 0.0,
+        "mef_cache_hit_count": mef_cache_hit_count,
+        "mef_cache_miss_count": mef_cache_miss_count,
+        "mef_cache_hit_rate": float(mef_cache_hit_count / mef_cache_total) if mef_cache_total else 0.0,
+        "opf_cache_size": int(sum(opf_cache_sizes)),
+        "mef_cache_size": int(sum(mef_cache_sizes)),
     }
     print_parallel_smoke_summary(summary)
     return summary
@@ -381,6 +641,16 @@ def print_parallel_smoke_summary(summary: Dict[str, Any]) -> None:
         "avg_grid_mef_plus",
         "total_safe_violation_cost",
         "reward_mismatch_count",
+        "cache_enabled",
+        "cache_load_bin_mw",
+        "opf_cache_hit_count",
+        "opf_cache_miss_count",
+        "opf_cache_hit_rate",
+        "mef_cache_hit_count",
+        "mef_cache_miss_count",
+        "mef_cache_hit_rate",
+        "opf_cache_size",
+        "mef_cache_size",
     ]:
         print(f"{key}: {summary.get(key)}")
 
@@ -431,6 +701,7 @@ def save_training_metadata(
         "REWARD_CONFIG_key_params": key_reward_config(case_config["reward_config"]),
         "DATA_CONFIG": case_config["data_config"],
         "GRID_REWARD_CONFIG": GRID_REWARD_CONFIG,
+        "GRID_CACHE_CONFIG": GRID_CACHE_CONFIG,
         "training_time": datetime.now().isoformat(timespec="seconds"),
         "model_save_path": str(final_model_path.with_suffix(".zip")),
         "best_model_path": str(best_model_path),

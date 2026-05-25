@@ -145,6 +145,19 @@ GRID_SCENARIO_CONFIG = {
     "fallback_load_scale": 1.0,
 }
 
+GRID_CACHE_CONFIG = {
+    "enable_grid_cache": True,
+    "cache_opf": True,
+    "cache_mef": True,
+    "cache_load_bin_mw": 0.1,
+    "cache_load_scale_bin": 0.005,
+    "cache_max_size": 50000,
+    "cache_clear_on_reset": False,
+    "cache_scope": "per_worker",
+    "cache_failed_results": False,
+    "cache_verbose": False,
+}
+
 PPO_CONFIG = {
     "learning_rate": 3e-4,
     "n_steps": 768,
