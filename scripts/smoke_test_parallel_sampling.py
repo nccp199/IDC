@@ -71,7 +71,7 @@ def main() -> None:
             n_envs=max(int(args.n_envs), 1),
             steps=args.steps,
             seed=args.seed,
-            expected_obs_dim=264,
+            expected_obs_dim=288,
             expected_action_dim=23,
         )
         print("\n[PARALLEL CACHE SUMMARY]")

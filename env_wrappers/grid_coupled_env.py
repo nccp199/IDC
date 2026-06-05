@@ -212,8 +212,8 @@ class GridCoupledEnv(gym.Wrapper):
             info.update(self._disabled_grid_info(base_reward))
             return self._augment_obs(obs, info), base_reward, terminated, truncated, info
 
-        p_grid_kw = _safe_float(info.get("P_grid_kW", 0.0), default=0.0)
-        idc_load_mw = max(p_grid_kw / 1000.0, 0.0)
+        bus_net_kw = _safe_float(info.get("P_bus_net_kW", info.get("P_grid_kW", 0.0)), default=0.0)
+        idc_load_mw = max(bus_net_kw, 0.0) / 1000.0
         hour = int(_safe_float(info.get("hour", self.current_step), default=self.current_step))
         adjusted_reward = self._run_grid_update(
             info,
@@ -410,6 +410,7 @@ class GridCoupledEnv(gym.Wrapper):
                 "grid_case_name": self.grid_case.name,
                 "grid_idc_ieee_bus_number": self.idc_ieee_bus_number,
                 "grid_idc_bus_index": self.idc_bus_idx,
+                "grid_bus_net_load_mw": float(idc_load_mw),
                 "grid_idc_load_mw": float(idc_load_mw),
                 "grid_load_scale": _safe_float(load_scale_t),
                 "grid_scenario_enabled": bool(self.grid_scenario_enabled),
@@ -535,6 +536,7 @@ class GridCoupledEnv(gym.Wrapper):
             "grid_case_name": self.grid_case.name,
             "grid_idc_ieee_bus_number": self.idc_ieee_bus_number,
             "grid_idc_bus_index": self.idc_bus_idx,
+            "grid_bus_net_load_mw": math.nan,
             "grid_idc_load_mw": math.nan,
             "grid_load_scale": math.nan,
             "grid_scenario_enabled": bool(self.grid_scenario_enabled),

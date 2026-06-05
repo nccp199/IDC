@@ -43,6 +43,8 @@
 !grid_model/*.py
 !env_wrappers/
 !env_wrappers/*.py
+!safe_rl/
+!safe_rl/*.py
 !scripts/
 !scripts/*.py
 !data/

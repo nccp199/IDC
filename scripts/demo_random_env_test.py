@@ -6,7 +6,7 @@
 
 作用：
     1. 检查环境是否可以 reset 和 step；
-    2. 检查状态维度是否为 256、动作维度是否为 23；
+    2. 检查状态维度是否为 280、动作维度是否为 23；
     3. 用随机动作跑完 24 小时 episode，快速确认重构后环境没有断。
 """
 
@@ -72,6 +72,10 @@ def main():
             f"completed={info['completed_work']:.2f} | "
             f"unused={info['unused_capacity']:.2f} | "
             f"P_IDC={info['P_IDC_kW']:.2f}kW | "
+            f"PV_avail={info['pv_available_kW']:.2f}kW | "
+            f"PV_used={info['pv_used_kW']:.2f}kW | "
+            f"PV_curt={info['pv_curtail_kW']:.2f}kW | "
+            f"P_bus_net={info['P_bus_net_kW']:.2f}kW | "
             f"P_grid={info['P_grid_kW']:.2f}kW | "
             f"grid_kWh={info['grid_energy_kWh']:.2f} | "
             f"grid_excess={info['grid_peak_excess_kW']:.2f}kW | "
@@ -110,6 +114,11 @@ def main():
     print(f"单位任务成本: {info['unit_task_cost']:.4f} 元 / 任务量")
     print(f"total_grid_energy_kWh: {info['total_grid_energy_kWh']:.2f} kWh")
     print(f"total_idc_energy_kWh: {info['total_idc_energy_kWh']:.2f} kWh")
+    print(f"total_pv_available_kWh: {info['total_pv_available_kWh']:.2f} kWh")
+    print(f"total_pv_used_kWh: {info['total_pv_used_kWh']:.2f} kWh")
+    print(f"total_pv_curtail_kWh: {info['total_pv_curtail_kWh']:.2f} kWh")
+    print(f"pv_utilization_rate: {info['pv_utilization_rate']:.4f}")
+    print(f"renewable_share: {info['renewable_share']:.4f}")
     print(f"total_carbon_emission: {info['total_carbon_emission']:.2f} kgCO2")
     print(f"total_carbon_cost: {info['total_carbon_cost']:.2f}")
     print(f"carbon_per_task: {info['carbon_per_task']:.4f} kgCO2 / work")

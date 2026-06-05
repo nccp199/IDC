@@ -15,7 +15,7 @@ class IDCPriceEnv20D(gym.Env):
     3. Q_t 只作为由 Task.remaining_work 统计得到的积压量；
     4. step() 内部按小时激活到达任务，并按 FIFO 规则执行任务；
     5. PPO 动作空间扩展为 22 维：20 台服务器任务执行强度 + 紧急任务偏好 + 连续执行偏好；
-    6. 状态空间扩展为 256 维：保留 136 维当前状态，并加入 120 维全天前瞻状态；
+    6. 状态空间扩展为 280 维：保留 136 维当前状态，并加入 144 维全天前瞻状态；
     7. 功耗按实际完成任务量反推实际负载，并加入计划负载预留损耗，避免高计划负载完全无成本；
     8. reward 扩展为任务类综合奖励：完成量、完整任务完成、高优先级任务完成、成本、积压、紧急积压、等待、超时、未使用能力、高电价高负载、暂停/恢复和不可暂停中断；
     9. 新增任务启停跟踪：记录任务启动、暂停、恢复与不可暂停任务中断。
@@ -86,6 +86,8 @@ class IDCPriceEnv20D(gym.Env):
         carbon_factor_t=None,
         T_amb=None,
         pv_t=None,
+        pv_ref_kw: float = 1.0,
+        allow_pv_export: bool = False,
         wt_t=None,
         server_seed=None,
         task_seed=None,
@@ -192,10 +194,10 @@ class IDCPriceEnv20D(gym.Env):
             dtype=np.float32,
         )
 
-        # 6. 状态空间扩展为 256 维：
+        # 6. 状态空间扩展为 280 维：
         #    当前状态 136 维：6 个全局状态 + 10 个任务池状态 + 6 组服务器状态 × 20 台服务器；
-        #    全天前瞻状态 120 维：price、T_amb、lambda_t、time_sin、time_cos 各 24 维。
-        #    这样 PPO 既能看到当前任务/服务器运行状态，也能看到全天电价、温度和任务到达趋势。
+        #    全天前瞻状态 144 维：price、T_amb、lambda_t、PV、time_sin、time_cos 各 24 维。
+        #    这样 PPO 既能看到当前任务/服务器运行状态，也能看到全天电价、温度、PV 和任务到达趋势。
         self.global_obs_dim = 6
         self.task_pool_obs_dim = 10
         self.server_feature_groups = 6
@@ -204,7 +206,7 @@ class IDCPriceEnv20D(gym.Env):
             + self.task_pool_obs_dim
             + self.server_feature_groups * self.model.N
         )
-        self.forecast_feature_groups = 5
+        self.forecast_feature_groups = 6
         self.forecast_obs_dim = self.forecast_feature_groups * self.horizon
         self.obs_dim = self.current_obs_dim + self.forecast_obs_dim
         self.observation_space = spaces.Box(
@@ -231,6 +233,14 @@ class IDCPriceEnv20D(gym.Env):
             else self._create_carbon_factor_curve(horizon=self.horizon)
         )
         self.pv_t = self._validate_time_series("pv_t", pv_t) if pv_t is not None else np.zeros(self.horizon)
+        if np.any(self.pv_t < -1e-9):
+            raise ValueError("pv_t must be non-negative in kW.")
+        self.pv_t = np.maximum(self.pv_t, 0.0)
+        pv_peak_kw = float(np.max(self.pv_t)) if self.pv_t.size else 0.0
+        self.pv_ref_kw = max(float(pv_ref_kw), pv_peak_kw, 1e-6)
+        self.allow_pv_export = bool(allow_pv_export)
+        if self.allow_pv_export:
+            raise ValueError("allow_pv_export=True is not supported in this first PV integration.")
         self.wt_t = self._validate_time_series("wt_t", wt_t) if wt_t is not None else np.zeros(self.horizon)
 
         # 8. 运行状态变量会在 reset() 中初始化
@@ -258,6 +268,9 @@ class IDCPriceEnv20D(gym.Env):
         self.total_bess_charge_kWh = 0.0
         self.total_bess_discharge_kWh = 0.0
         self.total_bess_degradation_cost = 0.0
+        self.total_pv_available_kWh = 0.0
+        self.total_pv_used_kWh = 0.0
+        self.total_pv_curtail_kWh = 0.0
         self.deadline_miss_task_ids = set()
 
         # 10. 任务启停统计指标
@@ -375,6 +388,9 @@ class IDCPriceEnv20D(gym.Env):
         self.total_bess_charge_kWh = 0.0
         self.total_bess_discharge_kWh = 0.0
         self.total_bess_degradation_cost = 0.0
+        self.total_pv_available_kWh = 0.0
+        self.total_pv_used_kWh = 0.0
+        self.total_pv_curtail_kWh = 0.0
         self.deadline_miss_task_ids = set()
         self.total_pause_count = 0
         self.total_resume_count = 0
@@ -405,6 +421,8 @@ class IDCPriceEnv20D(gym.Env):
             "total_task_count": len(self.tasks),
             "initial_backlog_work": self.Q_t,
             "obs_dim": self.obs_dim,
+            "pv_ref_kw": float(self.pv_ref_kw),
+            "allow_pv_export": bool(self.allow_pv_export),
             **self._server_group_info(),
             **self._task_scale_info(),
             **self._bess_static_info(),
@@ -565,10 +583,21 @@ class IDCPriceEnv20D(gym.Env):
             abs(desired_bess_charge_power_kW - bess_charge_power_kW)
             + abs(desired_bess_discharge_power_kW - bess_discharge_power_kW)
         )
-        P_grid_kW = max(P_IDC_kW + bess_charge_power_kW - bess_discharge_power_kW, 0.0)
+        # PV offsets only the local bus net load after the actual, SOC-clipped BESS action.
+        # No export is allowed in this first PV version, so grid purchase is clamped at zero.
+        P_local_demand_kW = P_IDC_kW + bess_charge_power_kW
+        P_local_net_before_pv_kW = P_local_demand_kW - bess_discharge_power_kW
+        pv_available_kW = max(pv_now, 0.0)
+        pv_used_kW = min(pv_available_kW, max(P_local_net_before_pv_kW, 0.0))
+        pv_curtail_kW = max(pv_available_kW - pv_used_kW, 0.0)
+        P_bus_net_kW = P_local_net_before_pv_kW - pv_used_kW
+        P_grid_kW = max(P_bus_net_kW, 0.0)
 
         idc_energy_kWh = P_IDC_kW * self.delta_t_hours
         grid_energy_kWh = P_grid_kW * self.delta_t_hours
+        pv_available_kWh = pv_available_kW * self.delta_t_hours
+        pv_used_kWh = pv_used_kW * self.delta_t_hours
+        pv_curtail_kWh = pv_curtail_kW * self.delta_t_hours
         # Backward-compatible alias: energy_kWh now means grid-purchased energy for cost/carbon.
         energy_kWh = grid_energy_kWh
         cost_t = grid_energy_kWh * price_now
@@ -590,6 +619,9 @@ class IDCPriceEnv20D(gym.Env):
         self.total_bess_charge_kWh += bess_charge_kWh
         self.total_bess_discharge_kWh += bess_discharge_kWh
         self.total_bess_degradation_cost += bess_degradation_cost
+        self.total_pv_available_kWh += pv_available_kWh
+        self.total_pv_used_kWh += pv_used_kWh
+        self.total_pv_curtail_kWh += pv_curtail_kWh
 
         # 11. reward：任务类综合奖励
         # 奖励项：完成工作量、完整完成任务数、高优先级任务完成；
@@ -735,6 +767,16 @@ class IDCPriceEnv20D(gym.Env):
             if total_available_work > 0
             else 0.0
         )
+        pv_utilization_rate = (
+            self.total_pv_used_kWh / max(self.total_pv_available_kWh, 1e-9)
+            if self.total_pv_available_kWh > 0.0
+            else 0.0
+        )
+        renewable_share = (
+            self.total_pv_used_kWh / max(self.total_idc_energy_kWh, 1e-9)
+            if self.total_idc_energy_kWh > 0.0
+            else 0.0
+        )
 
         if self.total_completed_work > 0:
             unit_task_cost = self.total_cost / self.total_completed_work
@@ -753,6 +795,10 @@ class IDCPriceEnv20D(gym.Env):
             "carbon_factor": carbon_factor_now,
             "PV": pv_now,
             "WT": wt_now,
+            "pv_available_kW": float(pv_available_kW),
+            "pv_used_kW": float(pv_used_kW),
+            "pv_curtail_kW": float(pv_curtail_kW),
+            "allow_pv_export": bool(self.allow_pv_export),
             "lambda_t": lambda_now,
 
             "action_mean": float(np.mean(server_action)),
@@ -826,6 +872,9 @@ class IDCPriceEnv20D(gym.Env):
 
             "P_IDC": P_IDC_t,
             "P_IDC_kW": float(P_IDC_kW),
+            "P_local_demand_kW": float(P_local_demand_kW),
+            "P_local_net_before_pv_kW": float(P_local_net_before_pv_kW),
+            "P_bus_net_kW": float(P_bus_net_kW),
             "P_grid_kW": float(P_grid_kW),
             "grid_power_kW": float(grid_power_kW),
             "grid_power_limit_kW": float(self.grid_power_limit_kW),
@@ -869,6 +918,9 @@ class IDCPriceEnv20D(gym.Env):
             "energy_kWh": energy_kWh,
             "grid_energy_kWh": float(grid_energy_kWh),
             "idc_energy_kWh": float(idc_energy_kWh),
+            "pv_available_kWh": float(pv_available_kWh),
+            "pv_used_kWh": float(pv_used_kWh),
+            "pv_curtail_kWh": float(pv_curtail_kWh),
             "cost": cost_t,
             "hourly_cost": cost_t,
             "carbon_emission": carbon_emission_t,
@@ -877,6 +929,11 @@ class IDCPriceEnv20D(gym.Env):
             "total_energy_kWh": self.total_energy_kWh,
             "total_grid_energy_kWh": self.total_grid_energy_kWh,
             "total_idc_energy_kWh": self.total_idc_energy_kWh,
+            "total_pv_available_kWh": float(self.total_pv_available_kWh),
+            "total_pv_used_kWh": float(self.total_pv_used_kWh),
+            "total_pv_curtail_kWh": float(self.total_pv_curtail_kWh),
+            "pv_utilization_rate": float(pv_utilization_rate),
+            "renewable_share": float(renewable_share),
             "total_cost": self.total_cost,
             "total_carbon_emission": self.total_carbon_emission,
             "total_carbon_cost": self.total_carbon_cost,
@@ -1476,14 +1533,15 @@ class IDCPriceEnv20D(gym.Env):
 
     def _get_forecast_features(self) -> np.ndarray:
         """
-        构造全天固定 24 小时前瞻特征，共 5 * horizon 维。
+        构造全天固定 24 小时前瞻特征，共 6 * horizon 维。
 
         本版本不使用滚动窗口，而是每一步都提供同一组 0-23 小时全天外部时序信息：
         1. 分时电价 price_t；
         2. 环境温度 T_amb；
         3. 任务到达量 lambda_t；
-        4. 小时时间编码 time_sin；
-        5. 小时时间编码 time_cos。
+        4. 光伏可用出力 pv_t；
+        5. 小时时间编码 time_sin；
+        6. 小时时间编码 time_cos。
 
         这些变量属于已知/可预测的外部条件，不包含未来队列、未来任务完成状态、
         未来服务器真实负载等由 PPO 动作决定的结果，避免未来信息泄露。
@@ -1494,6 +1552,7 @@ class IDCPriceEnv20D(gym.Env):
         price_24h = np.asarray(self.price_t, dtype=np.float64) / max(self.price_ref, eps)
         T_amb_24h = np.asarray(self.T_amb, dtype=np.float64) / 40.0
         lambda_24h = np.asarray(self.lambda_t, dtype=np.float64) / max(self.lambda_ref, eps)
+        pv_24h = np.asarray(self.pv_t, dtype=np.float64) / max(self.pv_ref_kw, eps)
         time_sin_24h = np.sin(2 * np.pi * hours / max(self.horizon, 1))
         time_cos_24h = np.cos(2 * np.pi * hours / max(self.horizon, 1))
 
@@ -1501,6 +1560,7 @@ class IDCPriceEnv20D(gym.Env):
             price_24h,
             T_amb_24h,
             lambda_24h,
+            pv_24h,
             time_sin_24h,
             time_cos_24h,
         ]).astype(np.float32)
@@ -1510,12 +1570,12 @@ class IDCPriceEnv20D(gym.Env):
                 f"前瞻状态维度错误：期望 {self.forecast_obs_dim}，实际 {forecast_features.shape[0]}。"
             )
 
-        # price/T/lambda 归一化后理论上多为正值；sin/cos 在 [-1, 1]。
+        # price/T/lambda/PV 归一化后理论上多为正值；sin/cos 在 [-1, 1]。
         # 这里做温和裁剪，避免偶发极端任务到达量造成输入过大。
         return np.clip(forecast_features, -1.5, 1.5).astype(np.float32)
 
     def _get_obs(self):
-        """构造当前状态向量。状态空间为 256 维：136 维当前状态 + 120 维全天前瞻状态。"""
+        """构造当前状态向量。状态空间为 280 维：136 维当前状态 + 144 维全天前瞻状态。"""
         t = self.current_step
 
         T_norm = self.T_amb[t] / 40.0

@@ -74,6 +74,11 @@ DATA_CONFIG = {
     "temperature_column": None,
     "pv_csv_path": None,
     "pv_column": None,
+    "pv_unit": "kW",
+    "pv_scale_factor": 1.0,
+    "pv_capacity_kw": 500.0,
+    "use_default_pv_curve": True,
+    "allow_pv_export": False,
     "wt_csv_path": None,
     "wt_column": None,
 }

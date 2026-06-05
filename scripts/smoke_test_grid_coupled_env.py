@@ -119,7 +119,7 @@ def main() -> None:
     final_info = info
 
     print(
-        "\nhour | obs_dim | P_grid_kW | load_MW | loadScale | USEP | LMP | MEF+ | "
+        "\nhour | obs_dim | P_bus_kW | P_grid_kW | load_MW | loadScale | USEP | LMP | MEF+ | "
         "minV | maxV | maxLine% | vCnt | lineCnt | safeV | safeL | safeOPF | safeCost | safeTotal | OPF | base_reward | adjusted_reward"
     )
     print("-" * 218)
@@ -170,8 +170,9 @@ def main() -> None:
         print(
             f"{int(info.get('hour', -1)):>4} | "
             f"{int(obs.shape[0]):>7} | "
+            f"{_fmt(info.get('P_bus_net_kW')):>8} | "
             f"{_fmt(info.get('P_grid_kW')):>9} | "
-            f"{_fmt(info.get('grid_idc_load_mw')):>7} | "
+            f"{_fmt(info.get('grid_bus_net_load_mw', info.get('grid_idc_load_mw'))):>7} | "
             f"{_fmt(info.get('grid_load_scale')):>9} | "
             f"{_fmt(info.get('grid_reference_usep')):>7} | "
             f"{_fmt(info.get('grid_lmp')):>7} | "

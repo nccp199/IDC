@@ -40,6 +40,23 @@ from env_wrappers import GridCoupledEnv
 
 ACTIVE_CASE_CONFIG = get_experiment_case("main")
 
+PV_OUTPUT_KEYS = [
+    "pv_available_kW",
+    "pv_used_kW",
+    "pv_curtail_kW",
+    "pv_available_kWh",
+    "pv_used_kWh",
+    "pv_curtail_kWh",
+    "total_pv_available_kWh",
+    "total_pv_used_kWh",
+    "total_pv_curtail_kWh",
+    "pv_utilization_rate",
+    "renewable_share",
+    "P_local_demand_kW",
+    "P_local_net_before_pv_kW",
+    "P_bus_net_kW",
+]
+
 
 # =========================
 # Shared environment config
@@ -88,6 +105,7 @@ METRIC_KEYS = [
     "total_cost",
     "unit_task_cost",
     "P_grid_kW",
+    *PV_OUTPUT_KEYS,
     "grid_energy_kWh",
     "idc_energy_kWh",
     "carbon_cost",
@@ -168,6 +186,7 @@ SUMMARY_KEYS = [
     "total_cost",
     "unit_task_cost",
     "total_energy_kWh",
+    *PV_OUTPUT_KEYS,
     "total_grid_energy_kWh",
     "total_idc_energy_kWh",
     "energy_per_task",
@@ -232,6 +251,9 @@ PRIMARY_PRINT_KEYS = [
     "total_cost",
     "total_carbon_emission",
     "total_carbon_cost",
+    "total_pv_used_kWh",
+    "pv_utilization_rate",
+    "renewable_share",
     "episode_grid_peak_power_kW",
     "episode_peak_power_kW",
     "total_reward",
@@ -453,6 +475,8 @@ def final_metrics_from_info(
             info.get("total_non_interruptible_interruption_count")
         ),
     }
+    for key in PV_OUTPUT_KEYS:
+        metrics[key] = safe_float(info.get(key))
     metrics.update(aggregate_grid_episode_metrics(episode_infos or []))
     return metrics
 
@@ -477,6 +501,9 @@ def build_hourly_row(
         "carbon_factor": safe_float(info.get("carbon_factor")),
         "PV": safe_float(info.get("PV")),
         "WT": safe_float(info.get("WT")),
+        "pv_available_kW": safe_float(info.get("pv_available_kW")),
+        "pv_used_kW": safe_float(info.get("pv_used_kW")),
+        "pv_curtail_kW": safe_float(info.get("pv_curtail_kW")),
         "lambda_t": safe_float(info.get("lambda_t")),
         "action_mean": safe_float(info.get("action_mean", np.mean(action))),
         "action_min": safe_float(info.get("action_min")),
@@ -499,6 +526,9 @@ def build_hourly_row(
         "task_workload_scale": safe_float(info.get("task_workload_scale")),
         "P_IDC": safe_float(info.get("P_IDC")),
         "P_IDC_kW": safe_float(info.get("P_IDC_kW")),
+        "P_local_demand_kW": safe_float(info.get("P_local_demand_kW")),
+        "P_local_net_before_pv_kW": safe_float(info.get("P_local_net_before_pv_kW")),
+        "P_bus_net_kW": safe_float(info.get("P_bus_net_kW")),
         "P_grid_kW": safe_float(info.get("P_grid_kW")),
         "grid_power_kW": safe_float(info.get("grid_power_kW")),
         "grid_power_limit_kW": safe_float(info.get("grid_power_limit_kW")),
@@ -538,6 +568,14 @@ def build_hourly_row(
         "energy_kWh": safe_float(info.get("energy_kWh")),
         "grid_energy_kWh": safe_float(info.get("grid_energy_kWh")),
         "idc_energy_kWh": safe_float(info.get("idc_energy_kWh")),
+        "pv_available_kWh": safe_float(info.get("pv_available_kWh")),
+        "pv_used_kWh": safe_float(info.get("pv_used_kWh")),
+        "pv_curtail_kWh": safe_float(info.get("pv_curtail_kWh")),
+        "total_pv_available_kWh": safe_float(info.get("total_pv_available_kWh")),
+        "total_pv_used_kWh": safe_float(info.get("total_pv_used_kWh")),
+        "total_pv_curtail_kWh": safe_float(info.get("total_pv_curtail_kWh")),
+        "pv_utilization_rate": safe_float(info.get("pv_utilization_rate")),
+        "renewable_share": safe_float(info.get("renewable_share")),
         "hourly_cost": safe_float(info.get("hourly_cost", info.get("cost"))),
         "carbon_emission": safe_float(info.get("carbon_emission")),
         "carbon_cost": safe_float(info.get("carbon_cost")),
@@ -591,6 +629,7 @@ def build_hourly_row(
         "grid_cache_mef_size": safe_float(info.get("grid_cache_mef_size"), default=0.0),
         "grid_idc_ieee_bus_number": safe_float(info.get("grid_idc_ieee_bus_number")),
         "grid_idc_bus_index": safe_float(info.get("grid_idc_bus_index")),
+        "grid_bus_net_load_mw": safe_float(info.get("grid_bus_net_load_mw")),
         "grid_idc_load_mw": safe_float(info.get("grid_idc_load_mw")),
         "grid_load_scale": safe_float(info.get("grid_load_scale")),
         "grid_scenario_enabled": bool(info.get("grid_scenario_enabled", False)),
@@ -984,6 +1023,7 @@ def ordered_fieldnames(rows: List[Dict[str, Any]]) -> List[str]:
         "total_cost",
         "unit_task_cost",
         "P_grid_kW",
+        *PV_OUTPUT_KEYS,
         "grid_energy_kWh",
         "idc_energy_kWh",
         "carbon_cost",
@@ -1091,6 +1131,11 @@ def save_hourly_mean_csv(rows, out_path):
     keys = [
         "price",
         "carbon_factor",
+        "PV",
+        "WT",
+        "pv_available_kW",
+        "pv_used_kW",
+        "pv_curtail_kW",
         "action_mean",
         "actual_task_load_mean",
         "actual_total_load_mean",
@@ -1101,11 +1146,22 @@ def save_hourly_mean_csv(rows, out_path):
         "energy_kWh",
         "grid_energy_kWh",
         "idc_energy_kWh",
+        "pv_available_kWh",
+        "pv_used_kWh",
+        "pv_curtail_kWh",
+        "total_pv_available_kWh",
+        "total_pv_used_kWh",
+        "total_pv_curtail_kWh",
+        "pv_utilization_rate",
+        "renewable_share",
         "hourly_cost",
         "carbon_emission",
         "carbon_cost",
         "P_IDC",
         "P_IDC_kW",
+        "P_local_demand_kW",
+        "P_local_net_before_pv_kW",
+        "P_bus_net_kW",
         "P_grid_kW",
         "grid_power_kW",
         "grid_power_limit_kW",
@@ -1179,6 +1235,7 @@ def save_hourly_mean_csv(rows, out_path):
         "grid_mef_cache_hit_rate",
         "grid_cache_opf_size",
         "grid_cache_mef_size",
+        "grid_bus_net_load_mw",
         "grid_idc_load_mw",
         "grid_load_scale",
         "grid_reference_usep",

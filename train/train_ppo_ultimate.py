@@ -509,7 +509,7 @@ def run_random_vec_env_smoke(
     n_envs: int,
     steps: int,
     seed: int = DEFAULT_EVAL_SEED,
-    expected_obs_dim: Optional[int] = 264,
+    expected_obs_dim: Optional[int] = 288,
     expected_action_dim: Optional[int] = 23,
 ) -> Dict[str, Any]:
     """Step a VecEnv with random actions and return grid diagnostic counts."""
