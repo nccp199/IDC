@@ -82,3 +82,15 @@ events.out.tfevents*
 # Requested static grid sensitivity outputs.
 !data/grid_node_sensitivity/ieee14_node_sensitivity_static.csv
 !data/grid_node_sensitivity/ieee14_node_sensitivity_detail.json
+
+# Track MARL source files
+!marl/
+!marl/**
+
+# Ignore Python cache files
+marl/**/__pycache__/
+marl/**/*.pyc
+
+# Track multi-agent documentation
+!docs/MULTI_AGENT_ENV_INTERFACE_SPEC.md
+!docs/MULTI_AGENT_ENV_IMPLEMENTATION_REPORT.md
