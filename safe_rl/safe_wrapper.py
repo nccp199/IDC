@@ -1,4 +1,10 @@
-"""Gymnasium wrapper that applies Lagrangian Safe PPO rewards."""
+"""Reward wrapper for the current SB3 PPO + Lagrangian multiplier design.
+
+This module does not implement a cost critic, a separate cost value network,
+CMDP actor-critic, Safe-HAPPO, or any multi-agent algorithm. It reads grid
+metrics from ``info``, computes configured costs, and optionally subtracts
+their multiplier-weighted penalty from the scalar SB3 PPO reward.
+"""
 
 from __future__ import annotations
 
@@ -13,7 +19,15 @@ from safe_rl.safe_costs import compute_safe_costs
 
 
 class SafeRewardWrapper(gym.Wrapper):
-    """Wrap an existing environment with CMDP safety-cost reporting/reward."""
+    """Report safety costs and optionally adjust the scalar PPO reward.
+
+    ``compute_safe_costs`` reports OPF, voltage, line, transformer, LMP, and
+    MEF fields. In the current configuration only OPF failure or, when OPF
+    succeeds, minimum-voltage cost enters ``active_costs`` and therefore the
+    applied Lagrangian penalty. Line/transformer costs are diagnostic; LMP/MEF
+    costs are currently zero. Multiplier updates are handled by the training
+    callback, not by an independent cost critic.
+    """
 
     def __init__(
         self,

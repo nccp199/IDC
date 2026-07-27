@@ -1,5 +1,11 @@
 # Grid Obs Eval Update Report
 
+> Historical-interface notice (2026-07-27): this report records the pre-PV
+> 256 + 8 = 264 interface that existed when the report was produced. The
+> current default base observation is 280 and `GridCoupledEnv` returns 288,
+> as specified in `docs/ENVIRONMENT_INTERFACE_SPEC.md`. The historical run
+> results below have not been rewritten.
+
 ## 1. Modified Files
 
 - `configs/config_ultimate.py`

@@ -7,15 +7,16 @@ from idc_model.task_model import IDCEnergyTaskModel
 
 class IDCPriceEnv20D(gym.Env):
     """
-    面向 PPO 的 22 维动作智算中心分时电价任务调度环境：ultimate 前瞻状态版。
+    面向 PPO 的智算中心分时电价任务调度环境：ultimate 前瞻状态版。
 
     本版相对旧环境的核心变化：
     1. 接入 Task 对象，不再把任务本体压缩成聚合队列 Q；
     2. reset() 时重新生成任务，避免上一轮 episode 的任务状态污染下一轮；
     3. Q_t 只作为由 Task.remaining_work 统计得到的积压量；
     4. step() 内部按小时激活到达任务，并按 FIFO 规则执行任务；
-    5. PPO 动作空间扩展为 22 维：20 台服务器任务执行强度 + 紧急任务偏好 + 连续执行偏好；
-    6. 状态空间扩展为 280 维：保留 136 维当前状态，并加入 144 维全天前瞻状态；
+    5. PPO 动作由 N 个 server-group 执行强度、紧急任务偏好、连续执行偏好和 BESS 动作组成；
+       默认 N=20，因此总维度为 N+3=23；
+    6. observation 维度按 6 + 10 + 6*N + 6*horizon 计算；默认 N=20、horizon=24 时为 280；
     7. 功耗按实际完成任务量反推实际负载，并加入计划负载预留损耗，避免高计划负载完全无成本；
     8. reward 扩展为任务类综合奖励：完成量、完整任务完成、高优先级任务完成、成本、积压、紧急积压、等待、超时、未使用能力、高电价高负载、暂停/恢复和不可暂停中断；
     9. 新增任务启停跟踪：记录任务启动、暂停、恢复与不可暂停任务中断。
@@ -181,10 +182,12 @@ class IDCPriceEnv20D(gym.Env):
         self.reward_soc_final_weight = float(reward_soc_final_weight)
         self.reward_grid_peak_weight = float(reward_grid_peak_weight)
 
-        # 5. 动作空间：22 维
-        #    action[0:20]：20 台服务器任务执行强度；
-        #    action[20]：紧急任务偏好，越高越偏向 deadline 近、priority 高的任务；
-        #    action[21]：连续执行偏好，越高越偏向继续执行已经启动但未完成的任务。
+        # 5. 动作由 N 个 server-group 执行强度和 3 个额外控制量组成：
+        #    action[0:N]：N 个 server-group 的任务执行强度；
+        #    action[N]：紧急任务偏好，越高越偏向 deadline 近、priority 高的任务；
+        #    action[N+1]：连续执行偏好，越高越偏向继续执行已启动但未完成的任务；
+        #    action[N+2]：BESS 动作；step() 内部将 [0, 1] 线性映射到 [-1, 1]。
+        #    默认 N=20，因此 action_dim=N+3=23。
         self.server_action_dim = self.model.N
         self.extra_action_dim = 3
         self.action_dim = self.server_action_dim + self.extra_action_dim
@@ -194,10 +197,11 @@ class IDCPriceEnv20D(gym.Env):
             dtype=np.float32,
         )
 
-        # 6. 状态空间扩展为 280 维：
-        #    当前状态 136 维：6 个全局状态 + 10 个任务池状态 + 6 组服务器状态 × 20 台服务器；
-        #    全天前瞻状态 144 维：price、T_amb、lambda_t、PV、time_sin、time_cos 各 24 维。
-        #    这样 PPO 既能看到当前任务/服务器运行状态，也能看到全天电价、温度、PV 和任务到达趋势。
+        # 6. 底层 observation 的维度随 N 和 horizon 变化：
+        #    current_obs_dim = 6 个全局特征 + 10 个任务池特征 + 6 组 server-group 特征 × N；
+        #    forecast_obs_dim = 6 组前瞻特征 × horizon；
+        #    obs_dim = 6 + 10 + 6*N + 6*horizon。
+        #    默认 N=20、horizon=24 时，current=136、forecast=144、base obs=280。
         self.global_obs_dim = 6
         self.task_pool_obs_dim = 10
         self.server_feature_groups = 6
@@ -434,11 +438,11 @@ class IDCPriceEnv20D(gym.Env):
         """
         执行一步，也就是推进 1 小时。
 
-        PPO 输入：
-            action: shape=(22,)
-            action[0:20] 表示对应服务器的任务执行强度；
-            action[20] 表示紧急任务偏好；
-            action[21] 表示连续执行偏好。
+        PPO 输入为 [0, 1] 范围内的 N+3 维 flat action：
+            action[0:N] 表示 N 个 server-group 的任务执行强度；
+            action[N] 表示紧急任务偏好；
+            action[N+1] 表示连续执行偏好；
+            action[N+2] 表示 BESS 动作，并在本方法内映射到 [-1, 1]。
 
         本版处理逻辑：
             1. 动作先转换为计划任务负载和计划处理能力；
@@ -449,7 +453,7 @@ class IDCPriceEnv20D(gym.Env):
         """
         t = self.current_step
 
-        # 1. 解析 22 维动作
+        # 1. 解析 N+3 维动作；默认 N=20 时为 23 维。
         action = np.asarray(action, dtype=np.float32).reshape(-1)
         if action.shape[0] != self.action_dim:
             raise ValueError(
@@ -1533,9 +1537,9 @@ class IDCPriceEnv20D(gym.Env):
 
     def _get_forecast_features(self) -> np.ndarray:
         """
-        构造全天固定 24 小时前瞻特征，共 6 * horizon 维。
+        构造覆盖整个 horizon 的固定前瞻特征，共 6 * horizon 维。
 
-        本版本不使用滚动窗口，而是每一步都提供同一组 0-23 小时全天外部时序信息：
+        本版本不使用滚动窗口，而是每一步都提供同一组完整 horizon 外部时序信息：
         1. 分时电价 price_t；
         2. 环境温度 T_amb；
         3. 任务到达量 lambda_t；
@@ -1575,7 +1579,12 @@ class IDCPriceEnv20D(gym.Env):
         return np.clip(forecast_features, -1.5, 1.5).astype(np.float32)
 
     def _get_obs(self):
-        """构造当前状态向量。状态空间为 280 维：136 维当前状态 + 144 维全天前瞻状态。"""
+        """构造底层状态向量：6 + 10 + 6*N + 6*horizon 维。
+
+        默认 N=20、horizon=24 时为 280 维：136 维当前特征和
+        144 维完整 horizon 前瞻特征。GridCoupledEnv 的 8 维 grid
+        observation 不属于本方法，由外层 wrapper 在此向量末尾追加。
+        """
         t = self.current_step
 
         T_norm = self.T_amb[t] / 40.0

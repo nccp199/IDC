@@ -1,5 +1,7 @@
 # Grid Reward Ablation and Parallel Sampling Report
 
+> Historical-interface notice (2026-07-27): this report preserves results from the pre-PV 256-dimensional base / 264-dimensional wrapped interface. The current default runtime interface is 280-dimensional base / 288-dimensional wrapped, as specified in `docs/ENVIRONMENT_INTERFACE_SPEC.md`. Historical dimensions and results below are intentionally not rewritten.
+
 Date: 2026-05-24
 
 ## 1. Modified Files

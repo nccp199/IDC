@@ -66,7 +66,16 @@ DEFAULT_GRID_SCENARIO_CONFIG = {
 
 
 class GridCoupledEnv(gym.Wrapper):
-    """Wrap an IDC environment and add IEEE14 OPF/MEF diagnostics to info."""
+    """Add IEEE14 OPF/MEF feedback without changing the base action space.
+
+    When grid observations are enabled, the wrapper appends eight post-grid
+    features to the base IDC/BESS observation in this order: LMP, MEF plus,
+    MEF minus, normalized minimum voltage, maximum line loading, network loss,
+    security penalty, and OPF-success flag. ``reset()`` initializes these from
+    a nominal zero-IDC-load grid solve. ``step(action)`` first executes the
+    base environment, then solves the grid for that transition and appends the
+    resulting grid features to the returned next observation and ``info``.
+    """
 
     def __init__(
         self,
@@ -191,6 +200,7 @@ class GridCoupledEnv(gym.Wrapper):
         return float(load_scale), float(usep)
 
     def reset(self, **kwargs):
+        """Return base reset state plus grid features from a zero-IDC-load solve."""
         if bool(self.grid_cache_config.get("cache_clear_on_reset", False)):
             self.grid_cache.clear()
         obs, info = self.env.reset(**kwargs)
@@ -204,6 +214,7 @@ class GridCoupledEnv(gym.Wrapper):
         return self._augment_obs(obs, info), info
 
     def step(self, action):
+        """Execute the base action, then append grid results for that transition."""
         obs, base_reward, terminated, truncated, info = self.env.step(action)
         info = dict(info)
         base_reward = float(base_reward)
@@ -334,6 +345,11 @@ class GridCoupledEnv(gym.Wrapper):
             )
 
     def _build_grid_obs_from_info(self, info: dict[str, Any]) -> np.ndarray:
+        """Build the eight grid features appended after the base observation.
+
+        Order: LMP, MEF+, MEF-, normalized minimum voltage, maximum line
+        loading, network loss, security penalty, OPF success.
+        """
         lmp_ref = max(float(self.grid_config.get("grid_lmp_ref", 100.0)), 1e-9)
         mef_ref = max(float(self.grid_config.get("grid_mef_ref", 1000.0)), 1e-9)
         voltage_ref = max(float(self.grid_config.get("grid_voltage_ref", 0.10)), 1e-9)

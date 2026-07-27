@@ -1,5 +1,7 @@
 # SAFE_COST Fix Report
 
+> Historical-interface notice (2026-07-27): this report preserves results from the pre-PV 256-dimensional base / 264-dimensional wrapped interface. The current default runtime interface is 280-dimensional base / 288-dimensional wrapped, as specified in `docs/ENVIRONMENT_INTERFACE_SPEC.md`. Historical dimensions and results below are intentionally not rewritten.
+
 ## 1. 修改文件列表
 
 本次代码修复涉及：
@@ -282,4 +284,3 @@ OPF failed buses: None
 - 当前 smoke test 下是否存在线路过载：否
 - 当前 smoke test 下 OPF 是否全部成功：是，`24/24`
 - 是否可以进入下一步 grid reward ablation / 小步 PPO smoke training：可以
-

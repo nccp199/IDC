@@ -1,7 +1,10 @@
-"""Normalized safety-cost computation for Safe PPO.
+"""Normalized safety-cost reporting for the current Safe PPO wrapper.
 
 This module only reads the info dictionary produced by the existing grid
 wrapper. It does not mutate the grid model, the IDC environment, or PPO code.
+The current active penalty is mutually exclusive: OPF cost on OPF failure,
+otherwise minimum-voltage cost. Line and transformer costs are reported but
+not active; LMP and MEF costs are placeholders fixed at zero in this version.
 """
 
 from __future__ import annotations
@@ -14,7 +17,7 @@ EPS = 1e-9
 
 
 def compute_safe_costs(info: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
-    """Compute normalized Safe RL costs from environment info."""
+    """Compute active and diagnostic normalized costs from grid ``info``."""
 
     clip_max = _positive_float(config.get("cost_clip_max", 1.0), default=1.0)
     opf_success = _truthy(info.get("grid_opf_success", info.get("opf_success", False)))
