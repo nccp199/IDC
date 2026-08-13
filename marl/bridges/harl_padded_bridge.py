@@ -10,6 +10,7 @@ from gymnasium import spaces
 
 from marl.bridges.harl_bridge import HARL_UPSTREAM_COMMIT, HarlIDCGridBridge
 from marl.diagnostics import BESSVirtualActionMonitor
+from marl.specs.state_specs import CENTRALIZED_STATE_DIM
 
 
 def _pad_to(array: np.ndarray, new_shape: tuple[int, ...], pad_value: float) -> np.ndarray:
@@ -101,8 +102,9 @@ class HarlPaddedBridge:
             raise ValueError("Padded observation spaces must both have shape (288,).")
         if tuple(space.shape for space in self.action_space) != ((22,), (22,)):
             raise ValueError("Padded action spaces must both have shape (22,).")
-        if tuple(space.shape for space in self.share_observation_space) != ((294,), (294,)):
-            raise ValueError("Centralized state spaces must remain shape (294,).")
+        expected = ((CENTRALIZED_STATE_DIM,), (CENTRALIZED_STATE_DIM,))
+        if tuple(space.shape for space in self.share_observation_space) != expected:
+            raise ValueError(f"Centralized state spaces must remain shape {expected}.")
 
     @property
     def last_info(self):

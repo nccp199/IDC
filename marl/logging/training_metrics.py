@@ -12,8 +12,8 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 
 
-LOGGER_VERSION = "idc-on-policy-metrics-v3"
-METRIC_SCHEMA_VERSION = "2.1.0"
+LOGGER_VERSION = "idc-on-policy-metrics-v4"
+METRIC_SCHEMA_VERSION = "2.2.0"
 REWARD_RECONSTRUCTION_TOLERANCE = 1e-6
 
 # Canonical log name -> physical-environment info name. r_grid_peak is deliberately
@@ -77,7 +77,10 @@ STEP_COLUMNS = (
     "lmp_available", "mef_plus", "mef_minus", "mef_available",
     "voltage_min_pu", "voltage_max_pu", "line_loading_max_pct",
     "grid_loss_mw", "opf_success", "mef_success", "voltage_violation",
-    "line_violation", "opf_violation", "safe_violation_total", "safe_cost",
+    "line_violation", "transformer_loading_max_pct", "transformer_violation",
+    "grid_bus_dynamic_clip_count", "grid_bus_dynamic_clip_fraction",
+    "grid_bus_dynamic_missing_value_count", "grid_bus_dynamic_fallback_used",
+    "opf_violation", "safe_violation_total", "safe_cost",
     "grid_security_penalty", "opf_cache_hit", "mef_cache_hit",
     "opf_cache_size", "mef_cache_size", "opf_cache_hits_total",
     "opf_cache_misses_total", "mef_cache_hits_total", "mef_cache_misses_total",
@@ -106,6 +109,10 @@ EPISODE_COLUMNS = (
     "charge_hour_fraction", "discharge_hour_fraction", "idle_hour_fraction",
     "opf_success_rate", "mef_success_rate", "opf_cache_hit_rate",
     "mef_cache_hit_rate", "voltage_violation_rate", "line_violation_rate",
+    "transformer_violation_rate", "max_transformer_loading_pct",
+    "grid_bus_dynamic_clip_count_sum", "grid_bus_dynamic_clip_fraction_max",
+    "grid_bus_dynamic_missing_value_count_sum",
+    "grid_bus_dynamic_fallback_rate",
     "min_voltage_pu", "max_voltage_pu", "mean_voltage_pu",
     "max_line_loading_pct", "mean_lmp", "mean_mef_plus",
     "safe_violation_sum", "max_safe_violation", "grid_security_penalty_sum",
@@ -471,6 +478,11 @@ class TrainingMetricsLogger:
             "grid_reward_enabled", "task_forecast_mode", "forecast_error_level",
             "task_forecast_mae", "task_forecast_rmse",
             "task_forecast_mape_nonzero_percent",
+            "grid_max_transformer_loading_percent",
+            "grid_transformer_overload_count", "grid_bus_dynamic_clip_count",
+            "grid_bus_dynamic_clip_fraction",
+            "grid_bus_dynamic_missing_value_count",
+            "grid_bus_dynamic_fallback_used",
         }
         if is_terminal:
             required_info.update(
@@ -642,6 +654,28 @@ class TrainingMetricsLogger:
             "mef_success": bool(info["grid_mef_success"]),
             "voltage_violation": self._required_int(info["grid_voltage_violation_count"], "grid_voltage_violation_count") > 0,
             "line_violation": self._required_int(info["grid_line_overload_count"], "grid_line_overload_count") > 0,
+            "transformer_loading_max_pct": self._optional_float(
+                info.get("grid_max_transformer_loading_percent")
+            ),
+            "transformer_violation": self._required_int(
+                info["grid_transformer_overload_count"],
+                "grid_transformer_overload_count",
+            ) > 0,
+            "grid_bus_dynamic_clip_count": self._required_int(
+                info["grid_bus_dynamic_clip_count"],
+                "grid_bus_dynamic_clip_count",
+            ),
+            "grid_bus_dynamic_clip_fraction": self._required_float(
+                info["grid_bus_dynamic_clip_fraction"],
+                "grid_bus_dynamic_clip_fraction",
+            ),
+            "grid_bus_dynamic_missing_value_count": self._required_int(
+                info["grid_bus_dynamic_missing_value_count"],
+                "grid_bus_dynamic_missing_value_count",
+            ),
+            "grid_bus_dynamic_fallback_used": bool(
+                info["grid_bus_dynamic_fallback_used"]
+            ),
             "opf_violation": self._required_float(info["safe_violation_opf"], "safe_violation_opf") > 0.0,
             "safe_violation_total": self._required_float(info["safe_violation_cost"], "safe_violation_cost"),
             "safe_cost": self._required_float(info["safe_cost_total"], "safe_cost_total"),
@@ -740,6 +774,24 @@ class TrainingMetricsLogger:
             "mef_cache_hit_rate": float(values("mef_cache_hit").mean()),
             "voltage_violation_rate": float(values("voltage_violation").mean()),
             "line_violation_rate": float(values("line_violation").mean()),
+            "transformer_violation_rate": float(
+                values("transformer_violation").mean()
+            ),
+            "max_transformer_loading_pct": self._optional_max(
+                rows, "transformer_loading_max_pct"
+            ),
+            "grid_bus_dynamic_clip_count_sum": int(
+                values("grid_bus_dynamic_clip_count").sum()
+            ),
+            "grid_bus_dynamic_clip_fraction_max": float(
+                values("grid_bus_dynamic_clip_fraction").max()
+            ),
+            "grid_bus_dynamic_missing_value_count_sum": int(
+                values("grid_bus_dynamic_missing_value_count").sum()
+            ),
+            "grid_bus_dynamic_fallback_rate": float(
+                values("grid_bus_dynamic_fallback_used").mean()
+            ),
             "min_voltage_pu": float(voltage.min()) if voltage.size else "",
             "max_voltage_pu": float(voltage.max()) if voltage.size else "",
             "mean_voltage_pu": float(voltage.mean()) if voltage.size else "",

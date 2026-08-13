@@ -19,7 +19,7 @@ class MultiAgentShapeTest(unittest.TestCase):
             self.assertEqual(env.action_spaces["bess"].shape, (1,))
             self.assertEqual(obs["idc"].shape, (288,))
             self.assertEqual(obs["bess"].shape, (164,))
-            self.assertEqual(state.shape, (294,))
+            self.assertEqual(state.shape, (364,))
             self.assertEqual(obs["idc"].dtype, np.float32)
             self.assertEqual(obs["bess"].dtype, np.float32)
             self.assertEqual(state.dtype, np.float32)
@@ -27,7 +27,7 @@ class MultiAgentShapeTest(unittest.TestCase):
             self.assertTrue(np.isfinite(obs["bess"]).all())
             self.assertTrue(np.isfinite(state).all())
             self.assertIsInstance(info, dict)
-            np.testing.assert_array_equal(state[-4:], np.zeros(4, dtype=np.float32))
+            np.testing.assert_array_equal(state[290:294], np.zeros(4, dtype=np.float32))
 
             action = {
                 "idc": np.full(22, 0.5, dtype=np.float32),
@@ -40,7 +40,7 @@ class MultiAgentShapeTest(unittest.TestCase):
             self.assertEqual(set(truncated), {"idc", "bess", "__all__"})
             self.assertEqual(next_obs["idc"].shape, (288,))
             self.assertEqual(next_obs["bess"].shape, (164,))
-            self.assertEqual(next_state.shape, (294,))
+            self.assertEqual(next_state.shape, (364,))
             self.assertTrue(np.isfinite(next_obs["idc"]).all())
             self.assertTrue(np.isfinite(next_obs["bess"]).all())
             self.assertTrue(np.isfinite(next_state).all())

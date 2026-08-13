@@ -16,10 +16,16 @@ def extract_grid_metrics(
 ) -> GridMetricResult:
     voltages = _finite_values(opf_result.bus_voltage_pu.values())
     line_loadings = _finite_values(opf_result.line_loading_percent.values())
+    transformer_loadings = _finite_values(
+        opf_result.transformer_loading_percent.values()
+    )
 
     min_voltage = min(voltages) if voltages else math.nan
     max_voltage = max(voltages) if voltages else math.nan
     max_line_loading = max(line_loadings) if line_loadings else math.nan
+    max_transformer_loading = (
+        max(transformer_loadings) if transformer_loadings else math.nan
+    )
 
     voltage_violation_count, voltage_violation_magnitude = _count_voltage_violations(
         opf_result,
@@ -31,6 +37,14 @@ def extract_grid_metrics(
         opf_result,
         fallback_limit=line_loading_max,
         tolerance=tolerance,
+    )
+    transformer_overload_count, transformer_overload_magnitude = (
+        _count_branch_overloads(
+            opf_result.transformer_loading_percent,
+            opf_result.transformer_loading_limit_percent,
+            fallback_limit=line_loading_max,
+            tolerance=tolerance,
+        )
     )
     opf_infeasible_flag = not opf_result.success
 
@@ -45,10 +59,13 @@ def extract_grid_metrics(
         min_voltage_pu=min_voltage,
         max_voltage_pu=max_voltage,
         max_line_loading_percent=max_line_loading,
+        max_transformer_loading_percent=max_transformer_loading,
         voltage_violation_count=voltage_violation_count,
         line_overload_count=line_overload_count,
+        transformer_overload_count=transformer_overload_count,
         voltage_violation_magnitude=voltage_violation_magnitude,
         line_overload_magnitude=line_overload_magnitude,
+        transformer_overload_magnitude=transformer_overload_magnitude,
         opf_infeasible_flag=opf_infeasible_flag,
         grid_security_penalty=grid_security_penalty,
     )
@@ -87,14 +104,28 @@ def _count_line_overloads(
     fallback_limit: float,
     tolerance: float,
 ) -> tuple[int, float]:
+    return _count_branch_overloads(
+        opf_result.line_loading_percent,
+        opf_result.line_loading_limit_percent,
+        fallback_limit=fallback_limit,
+        tolerance=tolerance,
+    )
+
+
+def _count_branch_overloads(
+    loading_by_branch: dict[int, float],
+    limit_by_branch: dict[int, float],
+    fallback_limit: float,
+    tolerance: float,
+) -> tuple[int, float]:
     count = 0
     magnitude = 0.0
-    for line_id, value in opf_result.line_loading_percent.items():
+    for branch_id, value in loading_by_branch.items():
         loading = _to_finite_float(value)
         if loading is None:
             continue
 
-        limit = _limit_value(opf_result.line_loading_limit_percent.get(line_id), fallback_limit)
+        limit = _limit_value(limit_by_branch.get(branch_id), fallback_limit)
         overload = loading - limit
         if overload > tolerance:
             count += 1

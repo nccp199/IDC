@@ -190,12 +190,21 @@ def _copy_opf_result(result: OPFResult) -> OPFResult:
         total_generation_cost=_safe_float(result.total_generation_cost),
         total_emission_kg=_safe_float(result.total_emission_kg),
         lmp_by_bus=_copy_float_dict(result.lmp_by_bus),
+        reactive_lmp_by_bus=_copy_float_dict(result.reactive_lmp_by_bus),
+        bus_active_power_mw=_copy_float_dict(result.bus_active_power_mw),
+        bus_reactive_power_mvar=_copy_float_dict(result.bus_reactive_power_mvar),
         gen_power_mw=_copy_float_dict(result.gen_power_mw),
         bus_voltage_pu=_copy_float_dict(result.bus_voltage_pu),
         bus_voltage_min_pu=_copy_float_dict(result.bus_voltage_min_pu),
         bus_voltage_max_pu=_copy_float_dict(result.bus_voltage_max_pu),
         line_loading_percent=_copy_float_dict(result.line_loading_percent),
         line_loading_limit_percent=_copy_float_dict(result.line_loading_limit_percent),
+        transformer_loading_percent=_copy_float_dict(
+            result.transformer_loading_percent
+        ),
+        transformer_loading_limit_percent=_copy_float_dict(
+            result.transformer_loading_limit_percent
+        ),
         total_load_mw=_safe_float(result.total_load_mw),
         total_generation_mw=_safe_float(result.total_generation_mw),
         network_loss_mw=_safe_float(result.network_loss_mw),

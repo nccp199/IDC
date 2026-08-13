@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 
 from marl.specs import AGENTS, BESS_AGENT, IDC_AGENT
+from marl.specs.state_specs import CENTRALIZED_STATE_DIM
 
 
 HARL_UPSTREAM_COMMIT = "b1af98b0dbab72a2eee9d160751cd09aedbb8ce2"
@@ -56,8 +57,15 @@ class HarlIDCGridBridge:
             raise ValueError(f"Current HARL bridge requires obs shapes ((288,), (164,)), got {obs_shapes}.")
         if action_shapes != ((22,), (1,)):
             raise ValueError(f"Current HARL bridge requires action shapes ((22,), (1,)), got {action_shapes}.")
-        if state_shapes != ((294,), (294,)):
-            raise ValueError(f"Current HARL bridge requires repeated state shape (294,), got {state_shapes}.")
+        expected_state_shapes = (
+            (CENTRALIZED_STATE_DIM,),
+            (CENTRALIZED_STATE_DIM,),
+        )
+        if state_shapes != expected_state_shapes:
+            raise ValueError(
+                "Current HARL bridge requires repeated state shape "
+                f"{expected_state_shapes}, got {state_shapes}."
+            )
 
     @property
     def last_info(self) -> dict[str, Any] | None:

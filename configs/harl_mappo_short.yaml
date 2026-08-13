@@ -1,0 +1,133 @@
+# Formal IDC/BESS MAPPO short-training configuration.
+# Values intentionally match the already-validated one-update smoke setup.
+main:
+  algorithm_name: mappo
+  env_name: gym
+  experiment_name: idc_bess_mappo_short
+
+critic:
+  type: mlp
+  hgta:
+    graph_schema_version: hgta_graph_v2_dynamic_bus
+    graph_builder_version: hgta_builder_v2_dynamic_bus
+    architecture_version: hgta_critic_v1
+    hidden_dim: 32
+    attention_heads: 4
+    attention_layers: 2
+    dropout: 0.0
+    residual: true
+    layer_norm: true
+    activation: relu
+    forecast_hidden_dim: 64
+    forecast_embedding_dim: 32
+    value_hidden_dim: 64
+    idc_power_ref_kw: 2000.0
+    grid_power_ref_kw: 4000.0
+    bess_capacity_kwh: 10000.0
+    bess_charge_power_ref_kw: 2000.0
+    bess_discharge_power_ref_kw: 2000.0
+
+project:
+  harl_upstream_commit: b1af98b0dbab72a2eee9d160751cd09aedbb8ce2
+  expected_harl_head: 050ad6a294fe9f7572985dea910d59ea6d4f94b4
+
+seed:
+  seed_specify: true
+  seed: 7110
+
+rng:
+  rng_isolation_version: critic-init-isolation-v1
+  critic_init_seed_rule: base_seed + critic_init_seed_offset
+  critic_init_seed_offset: 200000
+  critic_init_seed: null
+  actor_sampling_rng_isolated_from_critic_init: true
+
+device:
+  cuda: false
+  cuda_deterministic: true
+  torch_threads: 1
+
+parallel:
+  worker_seed_stride: 1000
+  multiprocessing_start_method: spawn
+  blas_threads: 1
+
+train:
+  updates: 1
+  num_env_steps: null
+  n_rollout_threads: 2
+  episode_length: 24
+  log_interval: 1
+  eval_interval: 1000
+  use_valuenorm: false
+  use_linear_lr_decay: false
+  use_proper_time_limits: true
+  model_dir: null
+
+eval:
+  use_eval: false
+  n_eval_rollout_threads: 1
+  eval_episodes: 1
+  seed: 2026
+
+render:
+  use_render: false
+  render_episodes: 1
+
+model:
+  hidden_sizes:
+    - 32
+    - 32
+  activation_func: relu
+  use_feature_normalization: true
+  initialization_method: orthogonal_
+  gain: 0.01
+  use_naive_recurrent_policy: false
+  use_recurrent_policy: false
+  recurrent_n: 1
+  data_chunk_length: 24
+  lr: 0.0005
+  critic_lr: 0.0005
+  opti_eps: 0.00001
+  weight_decay: 0
+  std_x_coef: 1
+  std_y_coef: 0.5
+  use_bounded_box_actions: true
+
+algo:
+  ppo_epoch: 1
+  critic_epoch: 1
+  use_clipped_value_loss: true
+  clip_param: 0.2
+  actor_num_mini_batch: 1
+  critic_num_mini_batch: 1
+  entropy_coef: 0.01
+  value_loss_coef: 1.0
+  use_max_grad_norm: true
+  max_grad_norm: 10.0
+  use_gae: true
+  gamma: 0.99
+  gae_lambda: 0.95
+  use_huber_loss: true
+  use_policy_active_masks: true
+  huber_delta: 10.0
+  action_aggregation: prod
+  share_param: false
+  fixed_order: true
+
+logger:
+  log_dir: runs/idc_bess_mappo_short
+  step_logging_enabled: true
+  episode_logging_enabled: true
+  tensorboard_enabled: true
+
+checkpoint:
+  enabled: true
+  interval_updates: 5
+  save_final: true
+  keep_last: 5
+
+env:
+  scenario: idc_bess_padding
+  state_type: EP
+  experiment_case: main

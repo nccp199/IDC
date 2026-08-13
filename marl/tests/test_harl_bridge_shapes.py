@@ -22,7 +22,7 @@ class _TruncatingGenericEnv:
             "idc": spaces.Box(0.0, 1.0, shape=(22,), dtype=np.float32),
             "bess": spaces.Box(0.0, 1.0, shape=(1,), dtype=np.float32),
         }
-        self.state_space = spaces.Box(-np.inf, np.inf, shape=(294,), dtype=np.float32)
+        self.state_space = spaces.Box(-np.inf, np.inf, shape=(364,), dtype=np.float32)
 
     def reset(self, seed=None, options=None):
         return (
@@ -30,7 +30,7 @@ class _TruncatingGenericEnv:
                 "idc": np.zeros(288, dtype=np.float32),
                 "bess": np.zeros(164, dtype=np.float32),
             },
-            np.zeros(294, dtype=np.float32),
+            np.zeros(364, dtype=np.float32),
             {},
         )
 
@@ -40,7 +40,7 @@ class _TruncatingGenericEnv:
                 "idc": np.zeros(288, dtype=np.float32),
                 "bess": np.zeros(164, dtype=np.float32),
             },
-            np.zeros(294, dtype=np.float32),
+            np.zeros(364, dtype=np.float32),
             {"idc": 1.0, "bess": 1.0},
             {"idc": False, "bess": False, "__all__": False},
             {"idc": True, "bess": True, "__all__": True},
@@ -60,14 +60,14 @@ class HarlBridgeShapeTest(unittest.TestCase):
             self.assertEqual(tuple(space.shape for space in bridge.action_space), ((22,), (1,)))
             self.assertEqual(
                 tuple(space.shape for space in bridge.share_observation_space),
-                ((294,), (294,)),
+                ((364,), (364,)),
             )
 
             self.assertEqual(bridge.seed(4404), [4404])
             obs, share_obs, available_actions = bridge.reset()
             self.assertIsInstance(obs, tuple)
             self.assertEqual(tuple(value.shape for value in obs), ((288,), (164,)))
-            self.assertEqual(share_obs.shape, (2, 294))
+            self.assertEqual(share_obs.shape, (2, 364))
             self.assertIsNone(available_actions)
             self.assertTrue(all(value.dtype == np.float32 for value in obs))
             self.assertEqual(share_obs.dtype, np.float32)
@@ -83,7 +83,7 @@ class HarlBridgeShapeTest(unittest.TestCase):
             )
             next_obs, next_share_obs, rewards, dones, infos, next_available = result
             self.assertEqual(tuple(value.shape for value in next_obs), ((288,), (164,)))
-            self.assertEqual(next_share_obs.shape, (2, 294))
+            self.assertEqual(next_share_obs.shape, (2, 364))
             self.assertEqual(rewards.shape, (2, 1))
             self.assertEqual(rewards.dtype, np.float32)
             self.assertEqual(dones.shape, (2,))

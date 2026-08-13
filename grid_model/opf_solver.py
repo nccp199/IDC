@@ -197,12 +197,21 @@ def _extract_opf_result(net: Any, mode: str, success: bool, message: str) -> OPF
         total_generation_cost=_extract_res_cost(net),
         total_emission_kg=math.nan,
         lmp_by_bus=_extract_bus_column(net, "res_bus", "lam_p"),
+        reactive_lmp_by_bus=_extract_bus_column(net, "res_bus", "lam_q"),
+        bus_active_power_mw=_extract_bus_column(net, "res_bus", "p_mw"),
+        bus_reactive_power_mvar=_extract_bus_column(net, "res_bus", "q_mvar"),
         gen_power_mw=gen_power,
         bus_voltage_pu=_extract_bus_column(net, "res_bus", "vm_pu"),
         bus_voltage_min_pu=_extract_bus_limit_column(net, "min_vm_pu", default=0.95),
         bus_voltage_max_pu=_extract_bus_limit_column(net, "max_vm_pu", default=1.05),
         line_loading_percent=_extract_line_loading_percent(net),
         line_loading_limit_percent=_extract_line_loading_limit_percent(net, default=100.0),
+        transformer_loading_percent=_extract_branch_column(
+            net, "res_trafo", "loading_percent"
+        ),
+        transformer_loading_limit_percent=_extract_branch_limit_percent(
+            net, "trafo", default=100.0
+        ),
         total_load_mw=total_load,
         total_generation_mw=total_generation,
         network_loss_mw=network_loss,
@@ -259,6 +268,12 @@ def _extract_line_loading_percent(net: Any) -> dict[int, float]:
     return {int(idx): _to_float(value) for idx, value in table["loading_percent"].items()}
 
 
+def _extract_branch_column(
+    net: Any, table_name: str, column: str
+) -> dict[int, float]:
+    return _extract_bus_column(net, table_name, column)
+
+
 def _extract_bus_limit_column(net: Any, column: str, default: float) -> dict[int, float]:
     table = getattr(net, "bus", None)
     if table is None or not hasattr(table, "index"):
@@ -274,7 +289,13 @@ def _extract_bus_limit_column(net: Any, column: str, default: float) -> dict[int
 
 
 def _extract_line_loading_limit_percent(net: Any, default: float) -> dict[int, float]:
-    table = getattr(net, "line", None)
+    return _extract_branch_limit_percent(net, "line", default)
+
+
+def _extract_branch_limit_percent(
+    net: Any, table_name: str, default: float
+) -> dict[int, float]:
+    table = getattr(net, table_name, None)
     if table is None or not hasattr(table, "index"):
         return {}
 

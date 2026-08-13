@@ -219,7 +219,7 @@ def test_formal_two_agent_environment_completes_one_episode_with_opf():
     try:
         observations, states, _ = env.reset()
         assert observations.shape == (2, 288)
-        assert states.shape == (2, 294)
+        assert states.shape == (2, 364)
         actions = np.full((2, 22), 0.5, dtype=np.float32)
         for _ in range(24):
             observations, states, rewards, dones, infos, _ = env.step(actions)

@@ -20,14 +20,14 @@ class HarlBridgeRolloutTest(unittest.TestCase):
             bridge.seed(seed)
             obs, share_obs, available = bridge.reset()
             self.assertEqual(tuple(value.shape for value in obs), ((288,), (164,)))
-            self.assertEqual(share_obs.shape, (2, 294))
+            self.assertEqual(share_obs.shape, (2, 364))
             self.assertIsNone(available)
 
             for step in range(1, 25):
                 ordered_actions = [space.sample() for space in bridge.action_space]
                 obs, share_obs, rewards, dones, infos, available = bridge.step(ordered_actions)
                 self.assertEqual(tuple(value.shape for value in obs), ((288,), (164,)))
-                self.assertEqual(share_obs.shape, (2, 294))
+                self.assertEqual(share_obs.shape, (2, 364))
                 self.assertEqual(rewards.shape, (2, 1))
                 self.assertTrue(all(np.isfinite(value).all() for value in obs))
                 self.assertTrue(np.isfinite(share_obs).all())

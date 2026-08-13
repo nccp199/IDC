@@ -17,8 +17,8 @@ from grid_model.grid_case import MEFResult, OPFResult
 from idc_model.task import Task
 
 
-ENVIRONMENT_STATE_VERSION = "idc-bess-vec-env-state-v3"
-WORKER_ENVIRONMENT_STATE_VERSION = "idc-bess-env-state-v2"
+ENVIRONMENT_STATE_VERSION = "idc-bess-vec-env-state-v4"
+WORKER_ENVIRONMENT_STATE_VERSION = "idc-bess-env-state-v3"
 LEGACY_ENVIRONMENT_STATE_VERSION = "idc-bess-env-state-v1"
 
 _BASE_DYNAMIC_FIELDS = (
@@ -165,6 +165,8 @@ def single_environment_state_dict(padded_env: Any) -> dict[str, Any]:
             "scenario_source": str(grid.grid_scenario_source),
             "scenario_load_scale": grid.grid_load_scale_t.copy(),
             "scenario_reference_usep": grid.grid_reference_usep_t.copy(),
+            "bus_dynamic_state": grid.grid_bus_dynamic_state.copy(),
+            "last_operating_state": copy.deepcopy(grid.last_grid_operating_state),
             "cache": _cache_state(grid.grid_cache),
         },
     }
@@ -237,6 +239,10 @@ def load_single_environment_state_dict(padded_env: Any, state: dict[str, Any]) -
         raise ValueError("Grid scenario source differs from the checkpoint.")
     np.testing.assert_array_equal(grid.grid_load_scale_t, gstate["scenario_load_scale"])
     np.testing.assert_array_equal(grid.grid_reference_usep_t, gstate["scenario_reference_usep"])
+    grid.grid_bus_dynamic_state = np.asarray(
+        gstate["bus_dynamic_state"], dtype=np.float32
+    ).copy()
+    grid.last_grid_operating_state = copy.deepcopy(gstate["last_operating_state"])
     _restore_cache(grid.grid_cache, gstate["cache"])
 
 

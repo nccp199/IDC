@@ -26,11 +26,12 @@ from marl.checkpointing.environment_state import (
 )
 from marl.envs.harl_env_factory import make_harl_single_env
 from marl.specs import ACTION_PADDING_STRATEGY, AGENTS, EFFECTIVE_ACTION_DIMS, PADDED_ACTION_DIMS
+from marl.specs.state_specs import CENTRALIZED_STATE_DIM
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-SUITE_SCHEMA_VERSION = "idc-bess-fixed-suite-v1"
-SCENARIO_SCHEMA_VERSION = "idc-bess-fixed-scenario-v2"
+SUITE_SCHEMA_VERSION = "idc-bess-fixed-suite-v2"
+SCENARIO_SCHEMA_VERSION = "idc-bess-fixed-scenario-v3"
 EPISODE_LENGTH = 24
 
 
@@ -106,7 +107,7 @@ def environment_fingerprints(experiment_case: str) -> dict[str, str]:
         "grid_cache": GRID_CACHE_CONFIG,
         "agent_order": list(AGENTS),
         "observation_dims": [288, 288],
-        "state_dim": 294,
+        "state_dim": CENTRALIZED_STATE_DIM,
         "padded_action_dims": [PADDED_ACTION_DIMS[agent] for agent in AGENTS],
         "effective_action_dims": [EFFECTIVE_ACTION_DIMS[agent] for agent in AGENTS],
         "action_padding_strategy": ACTION_PADDING_STRATEGY,
@@ -144,7 +145,7 @@ def _scenario_payload(
             "episode_length": EPISODE_LENGTH,
             "agent_order": list(AGENTS),
             "observation_dims": [288, 288],
-            "state_dim": 294,
+            "state_dim": CENTRALIZED_STATE_DIM,
             "padded_action_dims": [PADDED_ACTION_DIMS[agent] for agent in AGENTS],
             "effective_action_dims": [EFFECTIVE_ACTION_DIMS[agent] for agent in AGENTS],
             "action_padding_strategy": ACTION_PADDING_STRATEGY,
@@ -178,6 +179,24 @@ def _scenario_payload(
                 "pv": np.asarray(base_env.pv_t, dtype=np.float64).copy(),
                 "temperature": None,
                 "temperature_available": False,
+                "initial_grid_bus_vm_pu": np.asarray(
+                    info["grid_bus_vm_pu"], dtype=np.float64
+                ).copy(),
+                "initial_grid_bus_p_mw": np.asarray(
+                    info["grid_bus_p_mw"], dtype=np.float64
+                ).copy(),
+                "initial_grid_bus_q_mvar": np.asarray(
+                    info["grid_bus_q_mvar"], dtype=np.float64
+                ).copy(),
+                "initial_grid_bus_lmp": np.asarray(
+                    info["grid_bus_lmp"], dtype=np.float64
+                ).copy(),
+                "initial_grid_line_loading_percent": np.asarray(
+                    info["grid_line_loading_percent"], dtype=np.float64
+                ).copy(),
+                "initial_grid_transformer_loading_percent": np.asarray(
+                    info["grid_transformer_loading_percent"], dtype=np.float64
+                ).copy(),
                 "grid_load_scale": np.asarray(
                     env.env.env.env.grid_load_scale_t, dtype=np.float64
                 ).copy(),
@@ -281,7 +300,7 @@ def generate_suite(
         "episode_length": EPISODE_LENGTH,
         "agent_order": list(AGENTS),
         "observation_dims": [288, 288],
-        "state_dim": 294,
+        "state_dim": CENTRALIZED_STATE_DIM,
         "padded_action_dims": [22, 22],
         "effective_action_dims": [22, 1],
         "cache_bins": scenarios[0] and torch.load(
@@ -337,7 +356,7 @@ def load_suite(directory: str | Path, *, verify_compatibility: bool = True) -> d
             "episode_length": EPISODE_LENGTH,
             "agent_order": list(AGENTS),
             "observation_dims": [288, 288],
-            "state_dim": 294,
+            "state_dim": CENTRALIZED_STATE_DIM,
             "padded_action_dims": [22, 22],
             "effective_action_dims": [22, 1],
         }

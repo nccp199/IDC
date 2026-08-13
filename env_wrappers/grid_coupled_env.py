@@ -22,6 +22,12 @@ from grid_model import (
     solve_opf,
 )
 from grid_model.grid_cache import DEFAULT_GRID_CACHE_CONFIG, GridResultCache
+from grid_model.grid_case import OPFResult
+from grid_model.grid_dynamic_state import (
+    GRID_BUS_DYNAMIC_FEATURE_NAMES,
+    build_grid_bus_dynamic_payload,
+    normalization_metadata,
+)
 
 
 DEFAULT_GRID_CONFIG = {
@@ -102,6 +108,15 @@ class GridCoupledEnv(gym.Wrapper):
             raise ValueError(f"Only case_name='ieee14' is supported in GridCoupledEnv, got {self.case_name!r}.")
 
         self.grid_case = load_ieee14_case()
+        self.grid_bus_lmp_ref = max(
+            float(self.grid_config.get("grid_lmp_ref", 100.0)), 1e-9
+        )
+        self.grid_bus_dynamic_normalization = normalization_metadata(
+            base_mva=self.grid_case.base_mva,
+            lmp_ref=self.grid_bus_lmp_ref,
+        )
+        self.grid_bus_dynamic_state = np.zeros(70, dtype=np.float32)
+        self.last_grid_operating_state: dict[str, np.ndarray] = {}
         self.gen_emission_factors = build_default_gen_emission_factors(self.grid_case)
         self.grid_cache = GridResultCache(self.grid_cache_config)
         self.idc_ieee_bus_number = int(self.grid_config.get("idc_ieee_bus_number", 9))
@@ -417,6 +432,7 @@ class GridCoupledEnv(gym.Wrapper):
         safe_cost_opf = safe_violation_opf
         safe_cost_total = safe_violation_cost
 
+        dynamic_info = self._grid_bus_dynamic_info(opf_result)
         info.update(
             {
                 "grid_enabled": self.grid_enabled,
@@ -446,10 +462,19 @@ class GridCoupledEnv(gym.Wrapper):
                 "grid_min_voltage_pu": _safe_float(grid_metrics.min_voltage_pu),
                 "grid_max_voltage_pu": _safe_float(grid_metrics.max_voltage_pu),
                 "grid_max_line_loading_percent": _safe_float(grid_metrics.max_line_loading_percent),
+                "grid_max_transformer_loading_percent": _safe_float(
+                    grid_metrics.max_transformer_loading_percent
+                ),
                 "grid_voltage_violation_count": int(grid_metrics.voltage_violation_count),
                 "grid_line_overload_count": int(grid_metrics.line_overload_count),
+                "grid_transformer_overload_count": int(
+                    grid_metrics.transformer_overload_count
+                ),
                 "grid_voltage_violation_magnitude": _safe_float(grid_metrics.voltage_violation_magnitude, default=0.0),
                 "grid_line_overload_magnitude": _safe_float(grid_metrics.line_overload_magnitude, default=0.0),
+                "grid_transformer_overload_magnitude": _safe_float(
+                    grid_metrics.transformer_overload_magnitude, default=0.0
+                ),
                 "grid_security_penalty": _safe_float(grid_metrics.grid_security_penalty),
                 "safe_violation_voltage": safe_violation_voltage,
                 "safe_violation_line": safe_violation_line,
@@ -473,9 +498,62 @@ class GridCoupledEnv(gym.Wrapper):
                 "base_reward": float(base_reward),
                 "grid_reward_penalty": 0.0,
                 "grid_adjusted_reward": float(base_reward),
+                **dynamic_info,
                 **self._grid_cache_info(opf_cache_hit=opf_cache_hit, mef_cache_hit=mef_cache_hit),
             }
         )
+
+    def _grid_bus_dynamic_info(self, opf_result: OPFResult) -> dict[str, Any]:
+        payload = build_grid_bus_dynamic_payload(
+            self.grid_case,
+            opf_result,
+            lmp_ref=self.grid_bus_lmp_ref,
+        )
+        self.grid_bus_dynamic_state = payload.normalized_state.copy()
+        self.last_grid_operating_state = {
+            "bus_vm_pu": payload.bus_vm_pu.copy(),
+            "bus_p_mw": payload.bus_p_mw.copy(),
+            "bus_q_mvar": payload.bus_q_mvar.copy(),
+            "bus_lmp": payload.bus_lmp.copy(),
+            "bus_lam_q": payload.bus_lam_q.copy(),
+            "incident_branch_max_loading_percent": (
+                payload.incident_branch_max_loading_percent.copy()
+            ),
+            "line_loading_percent": payload.line_loading_percent.copy(),
+            "transformer_loading_percent": (
+                payload.transformer_loading_percent.copy()
+            ),
+        }
+        clip_counts = payload.clip_count_by_feature
+        clip_total = int(np.sum(clip_counts))
+        return {
+            "grid_bus_dynamic_state": payload.normalized_state.copy(),
+            "grid_bus_vm_pu": payload.bus_vm_pu.copy(),
+            "grid_bus_p_mw": payload.bus_p_mw.copy(),
+            "grid_bus_q_mvar": payload.bus_q_mvar.copy(),
+            "grid_bus_lmp": payload.bus_lmp.copy(),
+            "grid_bus_lam_q": payload.bus_lam_q.copy(),
+            "grid_bus_incident_branch_max_loading_percent": (
+                payload.incident_branch_max_loading_percent.copy()
+            ),
+            "grid_line_loading_percent": payload.line_loading_percent.copy(),
+            "grid_transformer_loading_percent": (
+                payload.transformer_loading_percent.copy()
+            ),
+            "grid_bus_dynamic_feature_order": list(
+                GRID_BUS_DYNAMIC_FEATURE_NAMES
+            ),
+            "grid_bus_dynamic_normalization": dict(
+                self.grid_bus_dynamic_normalization
+            ),
+            "grid_bus_dynamic_clip_count": clip_total,
+            "grid_bus_dynamic_clip_fraction": float(clip_total / 70.0),
+            "grid_bus_dynamic_clip_count_by_feature": clip_counts.copy(),
+            "grid_bus_dynamic_missing_value_count": int(
+                payload.missing_value_count
+            ),
+            "grid_bus_dynamic_fallback_used": bool(payload.fallback_used),
+        }
 
     def _compute_grid_reward_penalty(self, info, opf_result, mef_result, grid_metrics) -> float:
         grid_energy_mwh = max(_safe_float(info.get("grid_energy_kWh", 0.0), default=0.0) / 1000.0, 0.0)
@@ -544,6 +622,9 @@ class GridCoupledEnv(gym.Wrapper):
         }
 
     def _disabled_grid_info(self, base_reward: float) -> dict[str, Any]:
+        dynamic_info = self._grid_bus_dynamic_info(
+            OPFResult(success=False, mode=self.opf_mode, message="Grid disabled.")
+        )
         info = {
             "grid_enabled": False,
             "grid_opf_mode": self.opf_mode,
@@ -572,10 +653,13 @@ class GridCoupledEnv(gym.Wrapper):
             "grid_min_voltage_pu": math.nan,
             "grid_max_voltage_pu": math.nan,
             "grid_max_line_loading_percent": math.nan,
+            "grid_max_transformer_loading_percent": math.nan,
             "grid_voltage_violation_count": 0,
             "grid_line_overload_count": 0,
+            "grid_transformer_overload_count": 0,
             "grid_voltage_violation_magnitude": 0.0,
             "grid_line_overload_magnitude": 0.0,
+            "grid_transformer_overload_magnitude": 0.0,
             "grid_security_penalty": 0.0,
             "safe_violation_voltage": 0.0,
             "safe_violation_line": 0.0,
@@ -599,6 +683,7 @@ class GridCoupledEnv(gym.Wrapper):
             "base_reward": float(base_reward),
             "grid_reward_penalty": 0.0,
             "grid_adjusted_reward": float(base_reward),
+            **dynamic_info,
         }
         info.update(self._grid_cache_info(opf_cache_hit=False, mef_cache_hit=False))
         return info

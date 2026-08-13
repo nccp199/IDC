@@ -32,6 +32,7 @@ from marl.specs import (
     effective_action_mask,
 )
 from marl.logging import LOGGER_VERSION, METRIC_SCHEMA_VERSION, REWARD_COMPONENTS
+from marl.specs.state_specs import CENTRALIZED_STATE_DIM
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -40,7 +41,7 @@ DEFAULT_HARL_SOURCE = PROJECT_ROOT.parent / "HARL"
 EXPECTED_AGENT_ORDER = ("idc", "bess")
 EXPECTED_OBSERVATION_DIMS = (288, 288)
 EXPECTED_ACTION_DIMS = (22, 22)
-EXPECTED_STATE_DIM = 294
+EXPECTED_STATE_DIM = CENTRALIZED_STATE_DIM
 EXPECTED_EPISODE_LENGTH = 24
 
 
@@ -469,7 +470,7 @@ def validate_environment_contract(vec_env: Any, config: Mapping[str, Any]) -> di
     obs, share_obs, _ = vec_env.reset()
     if tuple(obs.shape) != (1, 2, 288):
         raise RuntimeError(f"Unexpected reset observation shape: {obs.shape!r}.")
-    if tuple(share_obs.shape) != (1, 2, 294):
+    if tuple(share_obs.shape) != (1, 2, EXPECTED_STATE_DIM):
         raise RuntimeError(f"Unexpected reset centralized state shape: {share_obs.shape!r}.")
     if not np.isfinite(obs).all() or not np.isfinite(share_obs).all():
         raise FloatingPointError("Environment reset produced NaN or inf.")

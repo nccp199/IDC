@@ -11,6 +11,7 @@ from gymnasium import spaces
 from marl.adapters import FlatActionAdapter
 from marl.observations import BESSObservationBuilder, GlobalStateBuilder, IDCObservationBuilder
 from marl.specs import AGENTS, BESS_AGENT, IDC_AGENT, SUPPLEMENTAL_FIELDS
+from marl.specs.state_specs import GRID_BUS_DYNAMIC_STATE_DIM
 
 
 class IDCGridMultiAgentEnv:
@@ -54,6 +55,7 @@ class IDCGridMultiAgentEnv:
         self.state_builder = GlobalStateBuilder(
             self.wrapped_obs_dim,
             supplemental_dim=len(SUPPLEMENTAL_FIELDS),
+            grid_bus_dynamic_dim=GRID_BUS_DYNAMIC_STATE_DIM,
         )
 
         self.action_spaces = {
@@ -205,11 +207,18 @@ class IDCGridMultiAgentEnv:
         initial: bool,
     ) -> tuple[dict[str, np.ndarray], np.ndarray]:
         supplemental = self._build_supplemental_values(info, initial=initial)
+        if "grid_bus_dynamic_state" not in info:
+            raise KeyError("Grid info is missing grid_bus_dynamic_state.")
+        grid_bus_dynamic_state = np.asarray(
+            info["grid_bus_dynamic_state"], dtype=np.float32
+        ).reshape(-1)
         obs_dict = {
             IDC_AGENT: self.idc_obs_builder.build(raw_wrapped_obs),
             BESS_AGENT: self.bess_obs_builder.build(raw_wrapped_obs, supplemental),
         }
-        state = self.state_builder.build(raw_wrapped_obs, supplemental)
+        state = self.state_builder.build(
+            raw_wrapped_obs, supplemental, grid_bus_dynamic_state
+        )
         return obs_dict, state
 
     def reset(self, seed=None, options=None):
