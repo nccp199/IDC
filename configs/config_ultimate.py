@@ -27,6 +27,11 @@ ENV_CONFIG = {
     "max_task_load_per_server": 0.60,
     "Q0": 300.0,
     "num_tasks": 30,
+    # Formal runs must remain non-oracle. "perfect" is debug/oracle-only.
+    "task_forecast_mode": "noisy",
+    "forecast_error_level": 0.20,
+    # Independent forecast RNG seed = worker task seed + this offset.
+    "task_forecast_seed_offset": 300000,
     "price_ref": 1.50,
     "lambda_ref": 2000.0,
     "queue_ref": 6000.0,

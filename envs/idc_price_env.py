@@ -3,6 +3,12 @@ import gymnasium as gym
 from gymnasium import spaces
 
 from idc_model.task_model import IDCEnergyTaskModel
+from idc_model.task_forecast import (
+    SYNTHETIC_FORECAST_SOURCE,
+    generate_task_arrival_forecast,
+    task_forecast_metrics,
+    validate_task_forecast_config,
+)
 
 
 class IDCPriceEnv20D(gym.Env):
@@ -92,6 +98,10 @@ class IDCPriceEnv20D(gym.Env):
         wt_t=None,
         server_seed=None,
         task_seed=None,
+        forecast_seed=None,
+        task_forecast_mode: str = "noisy",
+        forecast_error_level: float = 0.20,
+        task_forecast_seed_offset: int = 300000,
         enable_server_group_model: bool = False,
         server_group_size: int = 1,
         num_server_groups: int = 20,
@@ -111,6 +121,19 @@ class IDCPriceEnv20D(gym.Env):
             num_server_groups=num_server_groups,
             task_workload_scale=task_workload_scale,
         )
+
+        self.task_forecast_mode, self.forecast_error_level = (
+            validate_task_forecast_config(task_forecast_mode, forecast_error_level)
+        )
+        self.task_forecast_seed_offset = int(task_forecast_seed_offset)
+        if forecast_seed is None:
+            forecast_seed = (
+                None
+                if task_seed is None
+                else int(task_seed) + self.task_forecast_seed_offset
+            )
+        self.forecast_seed = None if forecast_seed is None else int(forecast_seed)
+        self.forecast_rng = np.random.default_rng(self.forecast_seed)
 
         # 2. 仿真参数
         self.horizon = int(horizon)
@@ -250,7 +273,11 @@ class IDCPriceEnv20D(gym.Env):
         # 8. 运行状态变量会在 reset() 中初始化
         self.current_step = 0
         self.tasks = []
-        self.lambda_t = np.zeros(self.horizon, dtype=np.float64)
+        self.true_task_arrival_profile = np.zeros(self.horizon, dtype=np.float64)
+        self.task_arrival_forecast = np.zeros(self.horizon, dtype=np.float64)
+        # Backward-compatible ground-truth alias. Observation builders must never
+        # use this alias for future-looking features.
+        self.lambda_t = self.true_task_arrival_profile
         self.Q_t = 0.0
         self.prev_loads = np.full(self.model.N, self.base_load, dtype=np.float32)
         self.prev_action = np.full(self.action_dim, 0.5, dtype=np.float32)
@@ -367,6 +394,34 @@ class IDCPriceEnv20D(gym.Env):
             "bess_scale_factor": float(self.bess_scale_factor),
         }
 
+    def _task_forecast_info(self, *, include_profiles: bool) -> dict:
+        metrics = task_forecast_metrics(
+            self.true_task_arrival_profile, self.task_arrival_forecast
+        )
+        if self.task_forecast_mode == "noisy":
+            source = SYNTHETIC_FORECAST_SOURCE
+        elif self.task_forecast_mode == "perfect":
+            source = "oracle ground-truth copy for debug/upper-bound use only"
+        else:
+            source = "task-arrival forecast disabled (all-zero forecast)"
+        info = {
+            "task_forecast_mode": self.task_forecast_mode,
+            "forecast_error_level": float(self.forecast_error_level),
+            "task_forecast_seed": self.forecast_seed,
+            "task_forecast_source": source,
+            "task_forecast_mae": metrics.mae,
+            "task_forecast_rmse": metrics.rmse,
+            "task_forecast_mape_nonzero_percent": metrics.mape_nonzero_percent,
+        }
+        if include_profiles:
+            info.update(
+                {
+                    "true_task_arrival_profile": self.true_task_arrival_profile.copy(),
+                    "task_arrival_forecast": self.task_arrival_forecast.copy(),
+                }
+            )
+        return info
+
     def reset(self, seed=None, options=None):
         """重置环境，开始新的 24 小时 episode。"""
         super().reset(seed=seed)
@@ -411,9 +466,16 @@ class IDCPriceEnv20D(gym.Env):
         self.tasks.insert(0, initial_backlog_task)
         self._initialize_task_runtime_state()
 
-        self.lambda_t = self.model.build_task_arrival_curve(
+        self.true_task_arrival_profile = self.model.build_task_arrival_curve(
             tasks=self.tasks,
             horizon=self.horizon,
+        )
+        self.lambda_t = self.true_task_arrival_profile
+        self.task_arrival_forecast = generate_task_arrival_forecast(
+            self.true_task_arrival_profile,
+            mode=self.task_forecast_mode,
+            error_level=self.forecast_error_level,
+            rng=self.forecast_rng,
         )
 
         # reset 后先激活 t=0 已到达任务，让初始状态能看到初始积压。
@@ -427,6 +489,7 @@ class IDCPriceEnv20D(gym.Env):
             "obs_dim": self.obs_dim,
             "pv_ref_kw": float(self.pv_ref_kw),
             "allow_pv_export": bool(self.allow_pv_export),
+            **self._task_forecast_info(include_profiles=True),
             **self._server_group_info(),
             **self._task_scale_info(),
             **self._bess_static_info(),
@@ -480,7 +543,7 @@ class IDCPriceEnv20D(gym.Env):
         carbon_factor_now = float(self.carbon_factor_t[t])
         pv_now = float(self.pv_t[t])
         wt_now = float(self.wt_t[t])
-        lambda_now = float(self.lambda_t[t])
+        lambda_now = float(self.true_task_arrival_profile[t])
 
         # 4. 当前小时新任务到达
         self._activate_arrivals(current_time=t)
@@ -804,6 +867,7 @@ class IDCPriceEnv20D(gym.Env):
             "pv_curtail_kW": float(pv_curtail_kW),
             "allow_pv_export": bool(self.allow_pv_export),
             "lambda_t": lambda_now,
+            **self._task_forecast_info(include_profiles=terminated),
 
             "action_mean": float(np.mean(server_action)),
             "action_min": float(np.min(server_action)),
@@ -1542,7 +1606,7 @@ class IDCPriceEnv20D(gym.Env):
         本版本不使用滚动窗口，而是每一步都提供同一组完整 horizon 外部时序信息：
         1. 分时电价 price_t；
         2. 环境温度 T_amb；
-        3. 任务到达量 lambda_t；
+        3. 任务到达量 forecast（与环境内部真实到达曲线隔离）；
         4. 光伏可用出力 pv_t；
         5. 小时时间编码 time_sin；
         6. 小时时间编码 time_cos。
@@ -1555,7 +1619,9 @@ class IDCPriceEnv20D(gym.Env):
 
         price_24h = np.asarray(self.price_t, dtype=np.float64) / max(self.price_ref, eps)
         T_amb_24h = np.asarray(self.T_amb, dtype=np.float64) / 40.0
-        lambda_24h = np.asarray(self.lambda_t, dtype=np.float64) / max(self.lambda_ref, eps)
+        lambda_24h = np.asarray(
+            self.task_arrival_forecast, dtype=np.float64
+        ) / max(self.lambda_ref, eps)
         pv_24h = np.asarray(self.pv_t, dtype=np.float64) / max(self.pv_ref_kw, eps)
         time_sin_24h = np.sin(2 * np.pi * hours / max(self.horizon, 1))
         time_cos_24h = np.cos(2 * np.pi * hours / max(self.horizon, 1))
@@ -1589,7 +1655,7 @@ class IDCPriceEnv20D(gym.Env):
 
         T_norm = self.T_amb[t] / 40.0
         price_norm = self.price_t[t] / self.price_ref
-        lambda_norm = self.lambda_t[t] / self.lambda_ref
+        lambda_norm = self.true_task_arrival_profile[t] / self.lambda_ref
         Q_norm = self.Q_t / self.queue_ref
 
         time_sin = np.sin(2 * np.pi * t / self.horizon)

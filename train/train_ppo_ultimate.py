@@ -74,6 +74,11 @@ def make_single_env(
 ) -> Any:
     """Create one IDC + GridCoupledEnv inside the current process."""
     worker_seed = _worker_seed(seed, rank)
+    forecast_seed = (
+        None
+        if worker_seed is None
+        else worker_seed + int(env_config.get("task_forecast_seed_offset", 300000))
+    )
     env_kwargs = {
         **env_config,
         **reward_config,
@@ -81,6 +86,7 @@ def make_single_env(
         **build_external_series_from_config(data_config, env_config["horizon"]),
         "server_seed": worker_seed,
         "task_seed": worker_seed,
+        "forecast_seed": forecast_seed,
     }
     base_env = IDCPriceEnv20D(**env_kwargs)
     env = GridCoupledEnv(
