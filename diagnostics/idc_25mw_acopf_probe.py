@@ -41,6 +41,7 @@ from grid_model.opf_solver import solve_ac_opf  # noqa: E402
 SEED = 2026
 TARGET_PEAK_MW = 25.0
 FIXED_ACTION_VALUE = 0.5
+LEGACY_APPROX_1MW_GROUP_SIZE = 100
 
 
 @dataclass(frozen=True)
@@ -506,7 +507,9 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
 
 def run(output_dir: Path, seed: int = SEED) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
-    original_size = int(IDC_SCALE_CONFIG["server_group_size"])
+    # This historical comparison intentionally preserves the pre-formalization
+    # approximately-1-MW baseline after the formal config moves to 25 MW.
+    original_size = LEGACY_APPROX_1MW_GROUP_SIZE
     original_trace, original_static = collect_site_trace(original_size, seed)
     calibration = calibrate_group_size(
         original_trace,

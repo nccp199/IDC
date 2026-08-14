@@ -8,8 +8,8 @@ main:
 critic:
   type: mlp
   hgta:
-    graph_schema_version: hgta_graph_v2_dynamic_bus
-    graph_builder_version: hgta_builder_v2_dynamic_bus
+    graph_schema_version: hgta_graph_v3_normalized_supplemental
+    graph_builder_version: hgta_builder_v3_normalized_supplemental
     architecture_version: hgta_critic_v1
     hidden_dim: 32
     attention_heads: 4
@@ -21,8 +21,10 @@ critic:
     forecast_hidden_dim: 64
     forecast_embedding_dim: 32
     value_hidden_dim: 64
-    idc_power_ref_kw: 2000.0
-    grid_power_ref_kw: 4000.0
+    # Physical references are recorded in graph metadata. Centralized state
+    # values are already normalized once before either MLP or HGTA sees them.
+    idc_power_ref_kw: 25000.0
+    grid_power_ref_kw: 27000.0
     bess_capacity_kwh: 10000.0
     bess_charge_power_ref_kw: 2000.0
     bess_discharge_power_ref_kw: 2000.0
@@ -131,3 +133,4 @@ env:
   scenario: idc_bess_padding
   state_type: EP
   experiment_case: main
+  input_semantics_version: idc25-normalized-supplemental-v1

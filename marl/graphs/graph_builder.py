@@ -58,8 +58,6 @@ class HGTAGraphBuilder:
         values = self._as_state_tensor(state)
         batch_size = int(values.shape[0])
         device = values.device
-        refs = self.schema.normalization_references
-
         server_group = torch.stack(
             tuple(values[:, start : start + 20] for start in (16, 36, 56, 76, 96, 116)),
             dim=-1,
@@ -67,17 +65,17 @@ class HGTAGraphBuilder:
         task_pool = values[:, 6:16].unsqueeze(1)
         idc = torch.stack(
             (
-                values[:, 290] / float(refs["idc_power_ref_kw"]),
-                values[:, 291] / float(refs["grid_power_ref_kw"]),
+                values[:, 290],
+                values[:, 291],
             ),
             dim=-1,
         ).unsqueeze(1)
         bess = torch.stack(
             (
                 values[:, 288],
-                values[:, 289] / float(refs["bess_capacity_kwh"]),
-                values[:, 292] / float(refs["bess_charge_power_ref_kw"]),
-                values[:, 293] / float(refs["bess_discharge_power_ref_kw"]),
+                values[:, 289],
+                values[:, 292],
+                values[:, 293],
             ),
             dim=-1,
         ).unsqueeze(1)

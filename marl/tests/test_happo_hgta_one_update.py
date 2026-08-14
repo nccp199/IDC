@@ -68,7 +68,7 @@ def test_formal_hgta_one_update_artifacts():
     graph = checkpoint["graph_metadata"]
     assert checkpoint["critic_type"] == "hgta"
     assert checkpoint["method_id"] == "HAPPO_HGTA"
-    assert graph["graph_schema_version"] == "hgta_graph_v2_dynamic_bus"
+    assert graph["graph_schema_version"] == "hgta_graph_v3_normalized_supplemental"
     assert graph["node_count"] == 39
     assert graph["edge_count"] == 90
     assert len(graph["feature_schema_hash"]) == 64

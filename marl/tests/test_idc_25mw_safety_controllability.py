@@ -63,7 +63,7 @@ def test_five_site_action_cases_are_seed_reproducible_and_finite(calibration):
 
 
 def test_candidate_scale_preserves_forecast_semantics_and_normalized_values(calibration):
-    formal = _make_site_env(int(IDC_SCALE_CONFIG["server_group_size"]), seed=2026)
+    formal = _make_site_env(100, seed=2026)
     candidate = _make_site_env(calibration["chosen_group_size"], seed=2026)
     try:
         formal.reset(seed=2026)

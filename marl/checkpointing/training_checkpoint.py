@@ -19,7 +19,7 @@ import torch
 from .environment_state import environment_state_dict, load_environment_state_dict
 
 
-CHECKPOINT_SCHEMA_VERSION = "idc-mappo-training-resume-v1"
+CHECKPOINT_SCHEMA_VERSION = "idc-mappo-training-resume-v2-idc25-semantics"
 CHECKPOINT_TYPE = "training_resume"
 
 
@@ -494,6 +494,13 @@ class TrainingCheckpointManager:
             "sha256": digest,
             "schema_version": CHECKPOINT_SCHEMA_VERSION,
             "checkpoint_type": CHECKPOINT_TYPE,
+            "input_semantics_version": compatibility["input_semantics_version"],
+            "supplemental_normalization_version": compatibility[
+                "supplemental_normalization_version"
+            ],
+            "supplemental_feature_references": copy.deepcopy(
+                compatibility["supplemental_feature_references"]
+            ),
             "algorithm": payload["algorithm_name"],
             "algorithm_name": payload["algorithm_name"],
             "critic_type": payload["critic_type"],

@@ -10,8 +10,8 @@ from typing import Any, Mapping
 import numpy as np
 
 
-GRAPH_SCHEMA_VERSION = "hgta_graph_v2_dynamic_bus"
-GRAPH_BUILDER_VERSION = "hgta_builder_v2_dynamic_bus"
+GRAPH_SCHEMA_VERSION = "hgta_graph_v3_normalized_supplemental"
+GRAPH_BUILDER_VERSION = "hgta_builder_v3_normalized_supplemental"
 HGTA_ARCHITECTURE_VERSION = "hgta_critic_v1"
 
 NODE_TYPE_ORDER = (

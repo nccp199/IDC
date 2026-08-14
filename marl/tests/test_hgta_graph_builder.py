@@ -18,7 +18,7 @@ def test_state_slices_and_server_feature_major_reorder(hgta_builder, synthetic_s
     )
     assert torch.equal(graph.node_features["server_group"][0], expected_server)
     assert torch.allclose(
-        graph.node_features["idc"][0, 0], torch.tensor([1500 / 2000, 1200 / 4000])
+        graph.node_features["idc"][0, 0], torch.tensor([0.06, 1200.0 / 27000.0])
     )
     assert torch.allclose(
         graph.node_features["bess"][0, 0], torch.tensor([0.5, 0.5, 0.25, 0.125])

@@ -54,6 +54,7 @@ class IDCPriceEnv20D(gym.Env):
         peak_power_ref_kW: float = 10.0,
         grid_power_limit_kW: float = 18.0,
         sla_ref: float = 50.0,
+        sla_penalty_ref: float | None = None,
         bess_capacity_kWh: float = 100.0,
         bess_soc_init: float = 0.50,
         bess_soc_min: float = 0.10,
@@ -65,6 +66,7 @@ class IDCPriceEnv20D(gym.Env):
         bess_charge_efficiency: float = 0.95,
         bess_discharge_efficiency: float = 0.95,
         bess_degradation_cost_per_kWh: float = 0.02,
+        bess_degradation_cost_ref: float | None = None,
         planned_load_reserve_alpha: float = 0.25,
         reward_done_weight: float = 3.0,
         reward_cost_weight: float = 0.5,
@@ -106,6 +108,7 @@ class IDCPriceEnv20D(gym.Env):
         server_group_size: int = 1,
         num_server_groups: int = 20,
         task_workload_scale: float = 1.0,
+        facility_rated_power_mw: float | None = None,
         bess_scale_factor: float = 1.0,
         scale_bess_with_idc: bool = False,
     ):
@@ -144,6 +147,13 @@ class IDCPriceEnv20D(gym.Env):
         self.num_server_groups = int(num_server_groups)
         self.effective_total_server_count = self.num_server_groups * self.server_group_size
         self.task_workload_scale = max(float(task_workload_scale), 0.0)
+        self.facility_rated_power_mw = (
+            None
+            if facility_rated_power_mw is None
+            else float(facility_rated_power_mw)
+        )
+        if self.facility_rated_power_mw is not None and self.facility_rated_power_mw <= 0.0:
+            raise ValueError("facility_rated_power_mw must be positive when provided.")
         self.idc_power_scale_factor = float(self.server_group_size if self.server_group_model_enabled else 1)
         self.bess_scale_factor = max(float(bess_scale_factor), 0.0)
         self.scale_bess_with_idc = bool(scale_bess_with_idc)
@@ -165,7 +175,14 @@ class IDCPriceEnv20D(gym.Env):
         self.peak_power_threshold_kW = float(peak_power_threshold_kW) * max(self.idc_power_scale_factor, 1e-9)
         self.peak_power_ref_kW = float(peak_power_ref_kW) * max(self.idc_power_scale_factor, 1e-9)
         self.grid_power_limit_kW = float(grid_power_limit_kW) * max(self.idc_power_scale_factor, 1e-9)
-        self.sla_ref = float(sla_ref) * max(self.task_workload_scale, 1e-9)
+        # SLA pressure is task-count/priority/lateness based, not workload based.
+        # Keep the legacy attribute as an alias for downstream reporting.
+        self.sla_penalty_ref = float(
+            sla_ref if sla_penalty_ref is None else sla_penalty_ref
+        )
+        if self.sla_penalty_ref <= 0.0:
+            raise ValueError("sla_penalty_ref must be positive.")
+        self.sla_ref = self.sla_penalty_ref
         bess_effective_scale = self.bess_scale_factor if self.scale_bess_with_idc else 1.0
         self.bess_capacity_kWh = float(bess_capacity_kWh) * bess_effective_scale
         self.bess_soc_init = float(bess_soc_init)
@@ -178,6 +195,18 @@ class IDCPriceEnv20D(gym.Env):
         self.bess_charge_efficiency = float(bess_charge_efficiency)
         self.bess_discharge_efficiency = float(bess_discharge_efficiency)
         self.bess_degradation_cost_per_kWh = float(bess_degradation_cost_per_kWh)
+        derived_degradation_ref = (
+            max(self.bess_charge_power_max_kW, self.bess_discharge_power_max_kW)
+            * self.delta_t_hours
+            * self.bess_degradation_cost_per_kWh
+        )
+        self.bess_degradation_cost_ref = float(
+            derived_degradation_ref
+            if bess_degradation_cost_ref is None
+            else bess_degradation_cost_ref
+        )
+        if self.bess_degradation_cost_ref <= 0.0:
+            raise ValueError("bess_degradation_cost_ref must be positive.")
         self.planned_load_reserve_alpha = float(planned_load_reserve_alpha)
 
         # 4. reward 权重
@@ -366,6 +395,7 @@ class IDCPriceEnv20D(gym.Env):
 
     def _server_group_info(self) -> dict:
         return {
+            "facility_rated_power_mw": self.facility_rated_power_mw,
             "server_group_model_enabled": bool(self.server_group_model_enabled),
             "server_group_size": int(self.server_group_size),
             "num_server_groups": int(self.num_server_groups),
@@ -380,6 +410,7 @@ class IDCPriceEnv20D(gym.Env):
         task_count = len(self.tasks) if self.tasks else 0
         return {
             "task_workload_scale": float(self.task_workload_scale),
+            "sla_penalty_ref": float(self.sla_penalty_ref),
             "effective_total_workload": float(total_workload),
             "average_task_workload": float(total_workload / task_count) if task_count > 0 else 0.0,
         }
@@ -391,6 +422,7 @@ class IDCPriceEnv20D(gym.Env):
             "bess_discharge_power_max_kW": float(self.bess_discharge_power_max_kW),
             "bess_charge_efficiency": float(self.bess_charge_efficiency),
             "bess_discharge_efficiency": float(self.bess_discharge_efficiency),
+            "bess_degradation_cost_ref": float(self.bess_degradation_cost_ref),
             "bess_scale_factor": float(self.bess_scale_factor),
         }
 
@@ -708,7 +740,7 @@ class IDCPriceEnv20D(gym.Env):
         urgent_backlog_norm = urgent_backlog_work / max(self.queue_ref, 1e-6)
         waiting_norm = avg_waiting_pressure / max(self.horizon, 1)
         deadline_miss_norm = new_deadline_miss_count / max(len(self.tasks), 1)
-        sla_penalty_norm = sla_metrics["sla_penalty"] / max(self.sla_ref, 1e-6)
+        sla_penalty_norm = sla_metrics["sla_penalty"] / self.sla_penalty_ref
         unused_capacity_norm = unused_capacity / max(self.queue_ref, 1e-6)
         # Grid peak is based on P_grid; P_IDC_kW remains the physical IDC load metric.
         grid_power_kW = P_grid_kW
@@ -762,7 +794,7 @@ class IDCPriceEnv20D(gym.Env):
         r_bess_degradation = (
             -self.reward_bess_degradation_weight
             * bess_degradation_cost
-            / max(self.cost_ref, 1e-6)
+            / self.bess_degradation_cost_ref
         )
         r_bess_invalid_action = (
             -self.reward_bess_invalid_action_weight

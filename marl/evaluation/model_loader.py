@@ -15,7 +15,13 @@ import torch
 from marl.algorithms import EFFECTIVE_ACTION_ALGO_REGISTRY
 from marl.evaluation.fixed_scenario_suite import canonical_sha256, environment_fingerprints, file_sha256
 from marl.methods import derive_method
-from marl.specs import ACTION_PADDING_STRATEGY, AGENTS, EFFECTIVE_ACTION_DIMS, PADDED_ACTION_DIMS
+from marl.specs import (
+    ACTION_PADDING_STRATEGY,
+    AGENTS,
+    EFFECTIVE_ACTION_DIMS,
+    INPUT_SEMANTICS_VERSION,
+    PADDED_ACTION_DIMS,
+)
 from marl.specs.state_specs import CENTRALIZED_STATE_DIM
 
 
@@ -84,6 +90,11 @@ def _validate_resolved_config(config: Mapping[str, Any]) -> dict[str, Any]:
         if config["main"].get("algorithm_name") != "mappo":
             raise ModelCompatibilityError("Resolved HAPPO config must explicitly record critic.type.")
         config["critic"] = {"type": "mlp", "legacy_schema_migration": True}
+    if config["env"].get("input_semantics_version") != INPUT_SEMANTICS_VERSION:
+        raise ModelCompatibilityError(
+            "Resolved model config uses legacy/unknown input semantics; old 1 MW "
+            "checkpoints cannot be silently loaded into the formal 25 MW environment."
+        )
     method = derive_method(
         config["main"].get("algorithm_name", ""), config["critic"].get("type", "")
     )
@@ -128,6 +139,9 @@ def _compatibility(
             "effective_action_dims": (metadata.get("agent_effective_action_dims"), dimensions["effective_action_dims"]),
             "action_padding_strategy": (metadata.get("action_padding_strategy"), ACTION_PADDING_STRATEGY),
             "bounded_box_actions": (metadata.get("use_bounded_box_actions"), True),
+            "input_semantics_version": (
+                metadata.get("input_semantics_version"), INPUT_SEMANTICS_VERSION
+            ),
         }
         bad = [f"{name}={actual!r}" for name, (actual, expected) in checks.items() if actual != expected]
         if bad:
@@ -139,6 +153,7 @@ def _compatibility(
         **dimensions,
         "action_padding_strategy": ACTION_PADDING_STRATEGY,
         "bounded_box_actions": True,
+        "input_semantics_version": INPUT_SEMANTICS_VERSION,
         "actor_network": {
             "hidden_sizes": list(config["model"]["hidden_sizes"]),
             "activation_func": config["model"]["activation_func"],
@@ -314,6 +329,7 @@ def load_model(
             "method_id": method.method_id,
             "agent_order": list(AGENTS),
             "bounded_box_actions": True,
+            "input_semantics_version": INPUT_SEMANTICS_VERSION,
         }
         for key, expected in checks.items():
             if key in {"critic_type", "method_id"} and key not in checkpoint_compat:

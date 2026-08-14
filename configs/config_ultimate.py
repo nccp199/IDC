@@ -44,7 +44,8 @@ ENV_CONFIG = {
     "peak_power_threshold_kW": 18.0,
     "peak_power_ref_kW": 10.0,
     "grid_power_limit_kW": 18.0,
-    "sla_ref": 50.0,
+    # Count/priority/lateness normalization; deliberately independent of workload scale.
+    "sla_penalty_ref": 50.0,
     "bess_capacity_kWh": 100.0,
     "bess_soc_init": 0.50,
     "bess_soc_min": 0.10,
@@ -56,16 +57,22 @@ ENV_CONFIG = {
     "bess_charge_efficiency": 0.95,
     "bess_discharge_efficiency": 0.95,
     "bess_degradation_cost_per_kWh": 0.02,
+    # None means derive once from max BESS power * degradation coefficient * timestep.
+    "bess_degradation_cost_ref": None,
     # 计划负载预留损耗系数：未被实际使用的计划负载中，有多少比例计入实际功耗。
     # 用于模拟资源预留、空转和调度开销，避免全一策略无成本地长期满负载。
     "planned_load_reserve_alpha": 0.40,
 }
 
 IDC_SCALE_CONFIG = {
+    # Formal 25 MW definition: facility P_IT + P_cooling + P_others at legal
+    # compute action=1, planned total load=0.65, and 30 C high-temperature reference.
+    "facility_rated_power_mw": 25.0,
     "enable_server_group_model": True,
-    "server_group_size": 100,
+    "server_group_size": 1841,
     "num_server_groups": 20,
-    "task_workload_scale": 100,
+    "task_workload_scale": 1841,
+    # The current 2 MW / 10 MWh BESS remains unchanged in Phase 2.7.
     "bess_scale_factor": 100,
     "scale_bess_with_idc": True,
 }

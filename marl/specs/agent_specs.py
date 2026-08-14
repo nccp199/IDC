@@ -5,6 +5,8 @@ BESS_AGENT = "bess"
 AGENTS = (IDC_AGENT, BESS_AGENT)
 
 ACTION_PADDING_STRATEGY = "padding-v1-effective-mask"
+INPUT_SEMANTICS_VERSION = "idc25-normalized-supplemental-v1"
+SUPPLEMENTAL_NORMALIZATION_VERSION = "physical-reference-v1"
 PADDED_ACTION_DIMS = {
     IDC_AGENT: 22,
     BESS_AGENT: 22,

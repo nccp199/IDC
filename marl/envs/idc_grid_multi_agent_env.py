@@ -10,7 +10,14 @@ from gymnasium import spaces
 
 from marl.adapters import FlatActionAdapter
 from marl.observations import BESSObservationBuilder, GlobalStateBuilder, IDCObservationBuilder
-from marl.specs import AGENTS, BESS_AGENT, IDC_AGENT, SUPPLEMENTAL_FIELDS
+from marl.specs import (
+    AGENTS,
+    BESS_AGENT,
+    IDC_AGENT,
+    INPUT_SEMANTICS_VERSION,
+    SUPPLEMENTAL_FIELDS,
+    SUPPLEMENTAL_NORMALIZATION_VERSION,
+)
 from marl.specs.state_specs import GRID_BUS_DYNAMIC_STATE_DIM
 
 
@@ -42,6 +49,13 @@ class IDCGridMultiAgentEnv:
         base_env = self.env.env
         self.forecast_obs_dim = int(base_env.forecast_obs_dim)
         self.global_obs_dim = int(base_env.global_obs_dim)
+        self.input_semantics_version = INPUT_SEMANTICS_VERSION
+        self.supplemental_normalization_version = SUPPLEMENTAL_NORMALIZATION_VERSION
+        self.supplemental_feature_references = self._supplemental_references(base_env)
+        self._supplemental_reference_vector = np.asarray(
+            [self.supplemental_feature_references[field] for field in SUPPLEMENTAL_FIELDS],
+            dtype=np.float32,
+        )
 
         self.idc_obs_builder = IDCObservationBuilder(self.wrapped_obs_dim)
         self.bess_obs_builder = BESSObservationBuilder(
@@ -109,6 +123,7 @@ class IDCGridMultiAgentEnv:
             "forecast_feature_groups",
             "horizon",
             "model",
+            "facility_rated_power_mw",
         )
         base_missing = [name for name in base_required if not hasattr(base_env, name)]
         if base_missing:
@@ -175,6 +190,33 @@ class IDCGridMultiAgentEnv:
             raise ValueError(f"Supplemental field {field!r} is not finite.")
         return result
 
+    @staticmethod
+    def _supplemental_references(base_env: Any) -> dict[str, float]:
+        rated_mw = getattr(base_env, "facility_rated_power_mw", None)
+        if rated_mw is None or not np.isfinite(float(rated_mw)) or float(rated_mw) <= 0.0:
+            raise ValueError(
+                "Formal multi-agent environment requires positive facility_rated_power_mw."
+            )
+        references = {
+            "bess_soc": 1.0,
+            "bess_energy_kWh": float(base_env.bess_capacity_kWh),
+            "P_IDC_kW": float(rated_mw) * 1000.0,
+            "P_grid_kW": (
+                float(rated_mw) * 1000.0
+                + float(base_env.bess_charge_power_max_kW)
+            ),
+            "bess_charge_power_kW": float(base_env.bess_charge_power_max_kW),
+            "bess_discharge_power_kW": float(base_env.bess_discharge_power_max_kW),
+        }
+        bad = {
+            key: value
+            for key, value in references.items()
+            if not np.isfinite(value) or value <= 0.0
+        }
+        if bad:
+            raise ValueError(f"Supplemental normalization references must be positive: {bad}.")
+        return references
+
     def _build_supplemental_values(self, info: Mapping[str, Any], *, initial: bool) -> np.ndarray:
         if initial:
             base_env = self.env.env
@@ -191,13 +233,17 @@ class IDCGridMultiAgentEnv:
             if missing:
                 raise KeyError(f"Transition info is missing supplemental fields: {missing}.")
             values = tuple(info[field] for field in SUPPLEMENTAL_FIELDS)
-        return np.asarray(
+        raw = np.asarray(
             [
                 self._finite_float(value, field=field)
                 for field, value in zip(SUPPLEMENTAL_FIELDS, values, strict=True)
             ],
             dtype=np.float32,
         )
+        normalized = raw / self._supplemental_reference_vector
+        if not np.isfinite(normalized).all():
+            raise ValueError("Normalized supplemental state contains NaN or infinity.")
+        return normalized.astype(np.float32, copy=False)
 
     def _build_outputs(
         self,
@@ -207,6 +253,15 @@ class IDCGridMultiAgentEnv:
         initial: bool,
     ) -> tuple[dict[str, np.ndarray], np.ndarray]:
         supplemental = self._build_supplemental_values(info, initial=initial)
+        if isinstance(info, dict):
+            info["input_semantics_version"] = self.input_semantics_version
+            info["supplemental_normalization_version"] = (
+                self.supplemental_normalization_version
+            )
+            info["supplemental_feature_references"] = dict(
+                self.supplemental_feature_references
+            )
+            info["supplemental_features_normalized"] = supplemental.copy()
         if "grid_bus_dynamic_state" not in info:
             raise KeyError("Grid info is missing grid_bus_dynamic_state.")
         grid_bus_dynamic_state = np.asarray(

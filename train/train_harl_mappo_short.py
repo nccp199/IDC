@@ -28,7 +28,9 @@ from marl.specs import (
     ACTION_PADDING_STRATEGY,
     AGENTS,
     EFFECTIVE_ACTION_DIMS,
+    INPUT_SEMANTICS_VERSION,
     PADDED_ACTION_DIMS,
+    SUPPLEMENTAL_NORMALIZATION_VERSION,
     effective_action_mask,
 )
 from marl.logging import LOGGER_VERSION, METRIC_SCHEMA_VERSION, REWARD_COMPONENTS
@@ -293,6 +295,11 @@ def validate_resolved_config(config: Mapping[str, Any]) -> None:
     from marl.methods import derive_method
 
     derive_method(config["main"].get("algorithm_name", ""), config["critic"].get("type", ""))
+    if config["env"].get("input_semantics_version") != INPUT_SEMANTICS_VERSION:
+        raise ValueError(
+            "env.input_semantics_version must identify the formal 25 MW normalized "
+            f"contract {INPUT_SEMANTICS_VERSION!r}."
+        )
     from marl.utils.rng_isolation import CRITIC_INIT_SEED_RULE, RNG_ISOLATION_VERSION
 
     rng = config.get("rng")
@@ -558,6 +565,26 @@ def validate_grid_startup(vec_env: Any) -> dict[str, Any]:
             + f"; mef_message={mef_message!r}"
         )
 
+    input_semantics_version = str(info.get("input_semantics_version", ""))
+    normalization_version = str(
+        info.get("supplemental_normalization_version", "")
+    )
+    supplemental_references = info.get("supplemental_feature_references")
+    if input_semantics_version != INPUT_SEMANTICS_VERSION:
+        raise RuntimeError(
+            "Grid startup check failed: unexpected input semantics "
+            f"{input_semantics_version!r}."
+        )
+    if normalization_version != SUPPLEMENTAL_NORMALIZATION_VERSION:
+        raise RuntimeError(
+            "Grid startup check failed: unexpected supplemental normalization "
+            f"{normalization_version!r}."
+        )
+    if not isinstance(supplemental_references, Mapping):
+        raise RuntimeError(
+            "Grid startup check failed: supplemental feature references are missing."
+        )
+
     return {
         "grid_scenario_source": source,
         "grid_scenario_message": scenario_message,
@@ -568,6 +595,11 @@ def validate_grid_startup(vec_env: Any) -> dict[str, Any]:
         "initial_opf_message": opf_message,
         "initial_mef_success": True,
         "initial_mef_message": mef_message,
+        "input_semantics_version": input_semantics_version,
+        "supplemental_normalization_version": normalization_version,
+        "supplemental_feature_references": copy.deepcopy(
+            dict(supplemental_references)
+        ),
         "cache_opf_load_bin_mw": info.get("grid_cache_load_bin_mw"),
         "cache_mef_load_bin_mw": info.get("grid_cache_mef_load_bin_mw"),
         "task_forecast_mode": str(info["task_forecast_mode"]),
@@ -744,7 +776,7 @@ def build_resume_compatibility(
     from configs.experiment_cases import get_experiment_case
 
     case = get_experiment_case(resolved["env"]["experiment_case"])
-    from configs.config_ultimate import GRID_CONFIG, GRID_CACHE_CONFIG
+    from configs.config_ultimate import GRID_CONFIG, GRID_CACHE_CONFIG, IDC_SCALE_CONFIG
 
     if hasattr(runner.envs, "envs"):
         grid_env = _find_grid_env(runner.envs)
@@ -779,12 +811,18 @@ def build_resume_compatibility(
         "parallel": resolved["parallel"],
         "rng": resolved["rng"],
         "experiment_env_config": case["env_config"],
+        "idc_scale_config": IDC_SCALE_CONFIG,
         "reward_config": case["reward_config"],
         "data_config": case["data_config"],
         "grid_cache_config": cache_config,
     }
     masks = [list(effective_action_mask(agent)) for agent in AGENTS]
     compatibility = {
+        "input_semantics_version": INPUT_SEMANTICS_VERSION,
+        "supplemental_normalization_version": SUPPLEMENTAL_NORMALIZATION_VERSION,
+        "supplemental_feature_references": copy.deepcopy(
+            grid_startup["supplemental_feature_references"]
+        ),
         "algorithm": resolved["main"]["algorithm_name"],
         "algorithm_name": resolved["main"]["algorithm_name"],
         "critic_type": resolved["critic"]["type"],
@@ -1060,6 +1098,13 @@ def run_training(
             "episode_logging_enabled": resolved["logger"].get("episode_logging_enabled", True),
             "tensorboard_enabled": resolved["logger"].get("tensorboard_enabled", True),
             "checkpoint_schema_version": CHECKPOINT_SCHEMA_VERSION,
+            "input_semantics_version": compatibility["input_semantics_version"],
+            "supplemental_normalization_version": compatibility[
+                "supplemental_normalization_version"
+            ],
+            "supplemental_feature_references": copy.deepcopy(
+                compatibility["supplemental_feature_references"]
+            ),
             "checkpoint": copy.deepcopy(resolved["checkpoint"]),
             "resumed": resume_info is not None,
             "resume_from_checkpoint": None if resume_info is None else resume_info["checkpoint"],
@@ -1193,6 +1238,13 @@ def run_training(
             "action_bounds_checks_passed": False,
             "checkpoint_schema_version": CHECKPOINT_SCHEMA_VERSION,
             "checkpoint_enabled": checkpoint_manager.enabled,
+            "input_semantics_version": compatibility["input_semantics_version"],
+            "supplemental_normalization_version": compatibility[
+                "supplemental_normalization_version"
+            ],
+            "supplemental_feature_references": copy.deepcopy(
+                compatibility["supplemental_feature_references"]
+            ),
             "checkpoint_interval_updates": checkpoint_manager.interval_updates,
             "checkpoint_resume_boundary": "post_update_only",
             "mid_rollout_resume_supported": False,

@@ -18,6 +18,7 @@ from configs.config_ultimate import (
     GRID_CONFIG,
     GRID_REWARD_CONFIG,
     GRID_SCENARIO_CONFIG,
+    IDC_SCALE_CONFIG,
 )
 from configs.experiment_cases import get_experiment_case
 from marl.checkpointing.environment_state import (
@@ -101,6 +102,7 @@ def environment_fingerprints(experiment_case: str) -> dict[str, str]:
     case = get_experiment_case(experiment_case)
     environment_contract = {
         "experiment_env": case["env_config"],
+        "idc_scale": IDC_SCALE_CONFIG,
         "grid": GRID_CONFIG,
         "grid_reward": GRID_REWARD_CONFIG,
         "grid_scenario": GRID_SCENARIO_CONFIG,

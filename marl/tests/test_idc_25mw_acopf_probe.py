@@ -16,6 +16,7 @@ from configs.config_ultimate import (
     REWARD_CONFIG,
 )
 from diagnostics.idc_25mw_acopf_probe import (
+    LEGACY_APPROX_1MW_GROUP_SIZE,
     calibrate_group_size,
     collect_site_trace,
     run_opf_case,
@@ -26,7 +27,7 @@ from grid_model.grid_case import OPFResult
 
 @pytest.fixture(scope="module")
 def two_cases():
-    original_size = int(IDC_SCALE_CONFIG["server_group_size"])
+    original_size = LEGACY_APPROX_1MW_GROUP_SIZE
     original, original_static = collect_site_trace(original_size, seed=2026)
     calibration = calibrate_group_size(
         original,
@@ -68,7 +69,7 @@ def test_diagnostic_does_not_mutate_formal_configuration():
             GRID_SCENARIO_CONFIG,
         )
     )
-    collect_site_trace(int(IDC_SCALE_CONFIG["server_group_size"]), seed=2026)
+    collect_site_trace(LEGACY_APPROX_1MW_GROUP_SIZE, seed=2026)
     after = (
         ENV_CONFIG,
         REWARD_CONFIG,
@@ -83,7 +84,7 @@ def test_diagnostic_does_not_mutate_formal_configuration():
 
 def test_seed_reproduces_original_and_25mw_site_traces(two_cases):
     original_again, _ = collect_site_trace(
-        int(IDC_SCALE_CONFIG["server_group_size"]), seed=2026
+        LEGACY_APPROX_1MW_GROUP_SIZE, seed=2026
     )
     scaled_again, _ = collect_site_trace(
         two_cases["calibration"]["chosen_integer_group_size"], seed=2026
