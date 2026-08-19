@@ -101,6 +101,10 @@ class GridCoupledEnv(gym.Wrapper):
             **default_grid_cache_config,
             **(grid_cache_config or {}),
         }
+        if grid_cache_config is not None and "cache_mef_load_bin_mw" not in grid_cache_config:
+            self.grid_cache_config["cache_mef_load_bin_mw"] = self.grid_cache_config[
+                "cache_load_bin_mw"
+            ]
 
         self.grid_enabled = bool(self.grid_config.get("enable_grid_coupling", True))
         self.case_name = str(self.grid_config.get("case_name", "ieee14"))
@@ -618,6 +622,9 @@ class GridCoupledEnv(gym.Wrapper):
             "grid_cache_opf_size": int(stats.get("opf_size", 0)),
             "grid_cache_mef_size": int(stats.get("mef_size", 0)),
             "grid_cache_load_bin_mw": float(stats.get("cache_load_bin_mw", 0.0)),
+            "grid_cache_mef_load_bin_mw": float(
+                stats.get("cache_mef_load_bin_mw", 0.0)
+            ),
             "grid_cache_load_scale_bin": float(stats.get("cache_load_scale_bin", 0.0)),
         }
 

@@ -167,6 +167,7 @@ GRID_CACHE_CONFIG = {
     "cache_opf": True,
     "cache_mef": True,
     "cache_load_bin_mw": 0.1,
+    "cache_mef_load_bin_mw": 0.01,
     "cache_load_scale_bin": 0.005,
     "cache_max_size": 50000,
     "cache_clear_on_reset": False,

@@ -21,6 +21,7 @@
 # Module package directories.
 !configs/
 !configs/*.py
+!configs/harl_mappo_short.yaml
 !data_io/
 !data_io/*.py
 !idc_model/

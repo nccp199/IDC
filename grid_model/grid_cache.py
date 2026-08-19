@@ -18,6 +18,7 @@ DEFAULT_GRID_CACHE_CONFIG = {
     "cache_opf": True,
     "cache_mef": True,
     "cache_load_bin_mw": 0.1,
+    "cache_mef_load_bin_mw": 0.01,
     "cache_load_scale_bin": 0.005,
     "cache_max_size": 50000,
     "cache_clear_on_reset": False,
@@ -31,11 +32,21 @@ class GridResultCache:
     """LRU cache for lightweight OPFResult and MEFResult dataclasses."""
 
     def __init__(self, cache_config: dict[str, Any] | None = None):
-        self.config = {**DEFAULT_GRID_CACHE_CONFIG, **(cache_config or {})}
+        supplied_config = dict(cache_config or {})
+        self.config = {**DEFAULT_GRID_CACHE_CONFIG, **supplied_config}
         self.enabled = bool(self.config.get("enable_grid_cache", True))
         self.cache_opf_enabled = bool(self.config.get("cache_opf", True))
         self.cache_mef_enabled = bool(self.config.get("cache_mef", True))
         self.cache_load_bin_mw = _positive_float(self.config.get("cache_load_bin_mw", 0.1), default=0.1)
+        mef_load_bin = (
+            self.config["cache_mef_load_bin_mw"]
+            if cache_config is None or "cache_mef_load_bin_mw" in supplied_config
+            else self.cache_load_bin_mw
+        )
+        self.cache_mef_load_bin_mw = _positive_float(
+            mef_load_bin, default=self.cache_load_bin_mw
+        )
+        self.config["cache_mef_load_bin_mw"] = self.cache_mef_load_bin_mw
         self.cache_load_scale_bin = _positive_float(self.config.get("cache_load_scale_bin", 0.005), default=0.005)
         self.cache_max_size = max(int(self.config.get("cache_max_size", 50000)), 0)
         self.cache_failed_results = bool(self.config.get("cache_failed_results", False))
@@ -77,14 +88,15 @@ class GridResultCache:
         delta_p_mw: float,
     ) -> tuple[Any, ...]:
         """Build a stable MEF cache key from the grid state and perturbation."""
+        rounded_delta = self._round_float(delta_p_mw)
         return (
             "mef",
             str(opf_mode).strip().lower(),
             int(idc_bus),
             int(hour),
             self._bin_load_scale(grid_load_scale),
-            self._bin_idc_load_mw(idc_load_mw),
-            self._round_float(delta_p_mw),
+            self._mef_load_key(idc_load_mw, rounded_delta),
+            rounded_delta,
         )
 
     def get_opf(self, key: Hashable) -> OPFResult | None:
@@ -149,6 +161,7 @@ class GridResultCache:
             "opf_size": int(len(self._opf_cache)),
             "mef_size": int(len(self._mef_cache)),
             "cache_load_bin_mw": float(self.cache_load_bin_mw),
+            "cache_mef_load_bin_mw": float(self.cache_mef_load_bin_mw),
             "cache_load_scale_bin": float(self.cache_load_scale_bin),
             "cache_max_size": int(self.cache_max_size),
             "cache_failed_results": bool(self.cache_failed_results),
@@ -163,6 +176,16 @@ class GridResultCache:
 
     def _bin_load_scale(self, value: float) -> float:
         return self._bin_float(value, self.cache_load_scale_bin)
+
+    def _mef_load_key(self, value: float, delta_p_mw: float) -> tuple[str, float]:
+        base_load = _safe_float(value, default=0.0)
+        boundary_epsilon = 10.0 ** (-(self.float_digits + 2))
+        if base_load <= delta_p_mw + boundary_epsilon:
+            return ("exact", self._round_float(base_load))
+        return (
+            "binned",
+            self._bin_float(base_load, self.cache_mef_load_bin_mw),
+        )
 
     def _bin_float(self, value: float, bin_size: float) -> float:
         number = _safe_float(value, default=0.0)
