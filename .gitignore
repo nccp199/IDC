@@ -17,6 +17,7 @@
 !data_loader.py
 !export_task_timeline_sin.py
 !experiment_cases.py
+!environment.yml
 
 # Module package directories.
 !configs/
